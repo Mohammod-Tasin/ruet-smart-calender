@@ -18,15 +18,18 @@ Scope for v1: **holidays only**. No exams, class tests, or other event types.
 Users:
 
 - **Public (students/teachers):** view only, no login.
-- **SUPER_ADMIN:** can create/edit/delete any holiday for anyone.
-- **FACULTY_ADMIN:** can manage holidays only for departments/series inside
-  their own faculty.
+- **Admin:** every admin is equal. Any admin can create/edit/delete/restore
+  any holiday for any audience, including `ALL`. There are NO roles and NO
+  faculty scoping. Admins are created only via the `db:create-admin` script.
+- Safety comes from transparency, not restrictions: every holiday shows who
+  created/last edited it and when, every change is in `audit_log`, deletes are
+  soft and restorable, and overlapping holidays trigger a warning (Section 5).
 
 ## 2. Domain model
 
 ```
 University
- └── Faculty        (e.g. EC = Electrical & Computer)
+ └── Faculty        (e.g. FECE = Electrical & Computer)
       └── Department (CSE, EEE, ECE, ETE ...)
            └── Series (identified by intake year: CSE-23 = CSE intake 2023)
 ```
@@ -56,24 +59,24 @@ ruet-calendar/
 │   │       ├── auth/{login,logout,me}/route.ts
 │   │       └── admin/...
 │   ├── core/            # PURE business logic, no Next.js / DB imports
-│   │   ├── calendar/    # month grid, audience compression (unit tested)
-│   │   ├── permission/  # authorization rules (unit tested)
+│   │   ├── calendar/    # month grid, audience compression, overlap (unit tested)
+│   │   ├── auth/        # token, origin, rate-limit, cookie, client IP (unit tested)
 │   │   └── validation/  # zod schemas shared by API and UI
 │   ├── server/          # server-only code (import 'server-only')
 │   │   ├── db/          # Drizzle schema, client, queries
-│   │   ├── auth/        # password hashing, sessions, rate limit
-│   │   ├── services/    # holiday create/update/delete (transaction + audit)
-│   │   └── http/        # JSON error helpers, origin check, session guard
+│   │   ├── auth/        # password hashing, sessions, login attempts
+│   │   ├── services/    # holiday create/update/delete/restore (transaction + audit)
+│   │   └── http/        # JSON error helpers, guardMutation, requireAdmin
 │   ├── components/      # MonthGrid, DayCell, HolidayChip, AudiencePicker ...
 │   └── lib/             # client-side api helpers, shared types
 ├── drizzle/             # generated SQL migrations (committed)
-├── scripts/             # seed.ts, create-super-admin.ts
+├── scripts/             # seed.ts, create-admin, setup-app-role, test-auth, test-holidays
 ├── tests/               # vitest
 └── .github/workflows/   # ci.yml, backup.yml
 ```
 
 Layering rule: `app/api/**/route.ts` stays thin — parse → validate (zod) →
-auth/permission (core) → service (server) → JSON response.
+`requireAdmin` (for admin routes) → service (server) → JSON response.
 `core/` must never import from `server/`, `app/`, or Next.js, so it can be
 reused later (e.g. by a mobile app backend or another service).
 
@@ -131,17 +134,16 @@ series(
 admins(
   id SERIAL PK, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL (store lowercased),
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('SUPER_ADMIN','FACULTY_ADMIN')),
-  faculty_id INT NULL REFERENCES faculties,
   is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK ((role = 'SUPER_ADMIN' AND faculty_id IS NULL)
-      OR (role = 'FACULTY_ADMIN' AND faculty_id IS NOT NULL)))
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now())
+  -- Phases 2-4 created role + faculty_id; Phase 5 drops them via a new migration.
 
 holidays(
   id BIGSERIAL PK, title TEXT NOT NULL CHECK (char_length(title) BETWEEN 1 AND 100),
+  note TEXT NULL CHECK (note IS NULL OR char_length(note) <= 500),   -- "why"; shown in details/overlap warning
   start_date DATE NOT NULL, end_date DATE NOT NULL CHECK (end_date >= start_date),
   created_by INT NOT NULL REFERENCES admins,
+  updated_by INT NOT NULL REFERENCES admins,                          -- = created_by on insert
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ NULL)
@@ -181,17 +183,34 @@ Rules:
   in the **same transaction**.
 - Weekly off days (Fri, Sat) are a config value, not rows.
 
-## 5. Authorization rules (src/core/permission — must have unit tests)
+## 5. Authorization and overlap warnings
 
-- SUPER_ADMIN: allowed everything.
-- FACULTY_ADMIN with faculty F may create/update/delete a holiday only if
-  **every** audience entry is inside F:
-  - `ALL` → forbidden
-  - `FACULTY:x` → allowed only if x == F
-  - `DEPARTMENT:d` → allowed only if d.faculty_id == F
-  - `SERIES:s` → allowed only if s's department.faculty_id == F
-- For update/delete, both the existing audience AND the new audience must pass.
-- Checks happen on the server for every write. Frontend hiding is UX only.
+Authorization: any logged-in, active admin may do any holiday write. The only
+check is `requireAdmin`. Do not build a permission/role system.
+
+Overlap detection (`src/core/calendar/overlap.ts` — pure, must have unit tests):
+
+- Two holidays overlap when BOTH are true:
+  1. Dates intersect: `a.start <= b.end AND b.start <= a.end`.
+  2. Audiences intersect: expand each audience to the set of ACTIVE series ids
+     (`ALL` → every active series; `FACULTY:x` → active series of its
+     departments; `DEPARTMENT:d` → its active series; `SERIES:s` → itself)
+     and the two sets share at least one id.
+- Return, per conflicting holiday: id, title, note, startDate, endDate, label,
+  createdBy {id, name}, createdAt, updatedBy {id, name}, updatedAt, the
+  overlapping date range, and the shared audience as a compressed label
+  (e.g. `EEE-23`).
+- On update, exclude the holiday being edited from the comparison.
+
+Server enforcement:
+
+- `POST` and `PATCH` run the overlap check. If any conflicts exist and the body
+  does not include `"confirmOverlap": true`, respond `409 OVERLAP` with
+  `{ error: {...}, conflicts: [...] }` and save nothing.
+- With `"confirmOverlap": true` the write proceeds; the audit_log `after`
+  JSON records `confirmedOverlapWith: [ids]`.
+- The admin UI (Phase 7) shows the conflicts with three choices:
+  edit the existing holiday / save anyway (resend with confirmOverlap) / cancel.
 
 ## 6. Audience compression (src/core/calendar — must have unit tests)
 
@@ -199,7 +218,7 @@ Given a holiday's audience and the current set of active series, produce a
 display label, collapsing bottom-up:
 
 1. All active series of a department present → show department code (`CSE`).
-2. All departments of a faculty present → show faculty label (`EC Faculty`).
+2. All departments of a faculty present → show faculty label (`FECE Faculty`).
 3. All departments present → `ALL`.
    Order: faculty sort_order, then department code, then intake year descending.
    Series format: `CSE-23` (department code + last two digits of intake year).
@@ -212,24 +231,35 @@ Public:
 - `GET /api/holidays?from=YYYY-MM-DD&to=YYYY-MM-DD[&series=ID]`
   - returns holidays overlapping the range:
     `start_date <= to AND end_date >= from AND deleted_at IS NULL`
-  - each item: id, title, startDate, endDate, audience (raw), label (compressed)
+  - each item: id, title, note, startDate, endDate, audience (raw),
+    label (compressed), updatedBy {name}, updatedAt
   - max range 400 days; validate both dates; 400 on bad input
   - header: `Cache-Control: public, s-maxage=60, stale-while-revalidate=300`
 - `GET /api/structure` — faculties, departments, active series (for filters/pickers)
 - `GET /api/health`
 
-Admin (require session; never cached: `Cache-Control: no-store`):
+Auth:
 
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
-- `POST /api/admin/holidays`
-- `PATCH /api/admin/holidays/[id]`
-- `DELETE /api/admin/holidays/[id]` (soft)
-- `GET /api/admin/audit?holidayId=` (SUPER_ADMIN all; FACULTY_ADMIN own faculty)
-- SUPER_ADMIN only: CRUD for admins, departments, series.
+  (`/me` returns id, name, email — no role)
 
-Errors: JSON `{ "error": { "code": "FORBIDDEN", "message": "..." } }` with
-correct HTTP status (400/401/403/404/409/422/429/500). Never leak SQL or
-stack traces to clients; log them server-side.
+Admin (require session; never cached: `Cache-Control: no-store`):
+
+- `POST /api/admin/holidays` — body: title, note?, startDate, endDate,
+  audience[], confirmOverlap? → 201 | 409 OVERLAP
+- `PATCH /api/admin/holidays/[id]` — same fields, partial; same 409 rule
+- `DELETE /api/admin/holidays/[id]` (soft)
+- `POST /api/admin/holidays/[id]/restore` — undo a soft delete
+- `POST /api/admin/holidays/check-overlap` — same body as POST, returns
+  `{ conflicts: [...] }` without saving (lets the UI warn while the admin is
+  still filling the form)
+- `GET /api/admin/holidays/[id]` — full details incl. createdBy/updatedBy names
+- `GET /api/admin/audit?holidayId=` — change history (any admin)
+- Admin accounts, departments and series are managed by scripts only (no API).
+
+Errors: JSON `{ "error": { "code": "OVERLAP", "message": "..." } }` with
+correct HTTP status (400/401/403/404/409/413/415/422/429/500). Never leak SQL
+or stack traces to clients; log them server-side.
 
 ## 8. Security requirements (non-negotiable)
 
@@ -237,18 +267,21 @@ stack traces to clients; log them server-side.
 - Server-only modules start with `import 'server-only'` so they can never be
   bundled into client code. Never prefix secrets with `NEXT_PUBLIC_`.
 - Passwords: argon2id. Minimum length 10.
-- No public signup. First SUPER_ADMIN is created by `scripts/create-super-admin.ts`
+- No public signup. Admins are created by `npm run db:create-admin`
   with the password typed interactively (never stored in a file).
+  The same script can deactivate an admin (`--deactivate <email>`).
 - Session: 32 random bytes (crypto), base64url, in cookie `rc_session`:
   `HttpOnly; Secure (in production); SameSite=Lax; Path=/; Max-Age=604800`.
   Store only sha256(token) in DB. Logout deletes the row. Expired rows ignored.
-- Login rate limit via `login_attempts` table (serverless: no in-memory state):
-  5 failures per email+IP in 15 min → 429. Same generic error for wrong email
-  and wrong password.
+- Login rate limits via `login_attempts` table (serverless: no in-memory state):
+  5 failures per email+IP in 15 min → 429; 20 failures per email from any IP
+  in 15 min → 429. Same generic error for wrong email and wrong password.
+  Client IP: `x-vercel-forwarded-for`, then `x-real-ip`, then first entry of
+  `x-forwarded-for`, else `unknown`.
 - State-changing requests must have `Content-Type: application/json` and an
   `Origin` header matching `APP_ORIGIN` (CSRF defence).
-- Validate all input with zod (dates, title length, ids exist, audience
-  non-empty, no duplicate audience entries). Reject bodies over 64 KB.
+- Validate all input with zod (dates, title length, note length, ids exist,
+  audience non-empty, no duplicate audience entries). Reject bodies over 64 KB.
 - Security headers via `next.config.ts`: `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`.
 - All queries through Drizzle (parameterised). No `sql.raw` with user input.
@@ -272,7 +305,8 @@ WEEKLY_OFF_DAYS=FRI,SAT
 - Before writing code in a phase, show a short plan and wait for approval.
 - After each phase run `npm run lint`, `npm run typecheck`, `npm test`,
   `npm run build`; fix all failures before stopping.
-- Write table-driven tests for `core/permission` and `core/calendar`.
+- Write table-driven tests for `core/calendar` (compression and overlap)
+  and `core/auth`.
 - Keep route handlers thin (see layering rule).
 - Explain what you did at the end of each phase in simple terms; the
   developer is learning, so mention _why_ for non-obvious choices.
@@ -280,26 +314,30 @@ WEEKLY_OFF_DAYS=FRI,SAT
 
 ## 11. Phases
 
-1. Scaffold Next.js app, folder structure, strict TS, lint/format, vitest,
+1. ✅ Scaffold Next.js app, folder structure, strict TS, lint/format, vitest,
    `.env.example`, `/api/health`, CI workflow.
-2. Drizzle schema + migrations (owner, direct URL derived automatically) +
+2. ✅ Drizzle schema + migrations (owner, direct URL derived automatically) +
    `db:setup-role` script + seed (faculties, departments, series) +
-   create-super-admin script.
-3. Public API: `/api/structure`, `/api/holidays` + compression (with tests).
-4. Auth: login/logout/me, sessions, rate limit, origin check, session guard.
-5. Admin holiday CRUD with permission checks (with tests) + audit log.
+   create-admin script.
+3. ✅ Public API: `/api/structure`, `/api/holidays` + compression (with tests).
+4. ✅ Auth: login/logout/me, sessions, rate limits, origin check, session guard.
+5. Drop admin roles (migration), add `note` + `updated_by`, admin holiday
+   CRUD + restore + overlap detection/409 + check-overlap endpoint + audit log
+   (with tests).
 6. Public month view UI (grid, chips, "+N more", filters, mobile, dark mode).
-7. Admin UI: login, range select across months, audience picker, edit/delete.
+7. Admin UI: login, range select across months, audience picker, note field,
+   live overlap warning with "edit existing / save anyway / cancel",
+   edit/delete/restore, "set by X on date" on every holiday.
 8. Deploy to Vercel, env vars, nightly backup workflow (pg_dump artifact).
 
-## 12. Seed data (fill in before Phase 2)
+## 12. Seed data
 
 Undergraduate degree-awarding departments (14):
 
-- Faculty of Electrical & Computer Engineering (ECE): EEE, CSE, ECE, ETE
-- Faculty of Civil Engineering (CE): CE, ARCH, URP, BECM
-- Faculty of Mechanical Engineering (ME): ME, IPE, CME, MTE, MSE, ChE
-
+- Faculty of Electrical & Computer Engineering (FECE): EEE, CSE, ECE, ETE
+  (faculty codes are FECE, FCE and FME, so they never clash with department codes)
+- Faculty of Civil Engineering (FCE): CE, ARCH, URP, BECM
+- Faculty of Mechanical Engineering (FME): ME, IPE, CME, MTE, MSE, ChE
 
 Active undergraduate series: 2021, 2022, 2023, 2024, and 2025. Seed
 each active series for every undergraduate degree-awarding department.

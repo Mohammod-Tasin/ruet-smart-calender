@@ -20,10 +20,13 @@ export async function GET(req: Request) {
       .map((h) => ({
         id: h.id,
         title: h.title,
+        note: h.note,
         startDate: h.startDate,
         endDate: h.endDate,
         audience: h.audience,
         label: compressAudience(h.audience, structure),
+        updatedBy: h.updatedBy,
+        updatedAt: h.updatedAt,
       }));
 
     return Response.json(

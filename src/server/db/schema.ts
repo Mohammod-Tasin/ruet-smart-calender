@@ -48,43 +48,36 @@ export const series = pgTable(
   ],
 );
 
-export const admins = pgTable(
-  'admins',
-  {
-    id: serial('id').primaryKey(),
-    name: text('name').notNull(),
-    email: text('email').notNull().unique(), // always stored lowercased
-    passwordHash: text('password_hash').notNull(),
-    role: text('role', { enum: ['SUPER_ADMIN', 'FACULTY_ADMIN'] }).notNull(),
-    facultyId: integer('faculty_id').references(() => faculties.id),
-    isActive: boolean('is_active').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    check('admins_role_check', sql`${t.role} IN ('SUPER_ADMIN','FACULTY_ADMIN')`),
-    check(
-      'admins_role_faculty_check',
-      sql`(${t.role} = 'SUPER_ADMIN' AND ${t.facultyId} IS NULL) OR (${t.role} = 'FACULTY_ADMIN' AND ${t.facultyId} IS NOT NULL)`,
-    ),
-  ],
-);
+export const admins = pgTable('admins', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(), // always stored lowercased
+  passwordHash: text('password_hash').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const holidays = pgTable(
   'holidays',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     title: text('title').notNull(),
+    note: text('note'), // the "why"; shown in details and in overlap warnings
     startDate: date('start_date', { mode: 'string' }).notNull(),
     endDate: date('end_date', { mode: 'string' }).notNull(),
     createdBy: integer('created_by')
       .notNull()
       .references(() => admins.id),
+    updatedBy: integer('updated_by')
+      .notNull()
+      .references(() => admins.id), // = created_by on insert
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
     check('holidays_title_length', sql`char_length(${t.title}) BETWEEN 1 AND 100`),
+    check('holidays_note_length', sql`${t.note} IS NULL OR char_length(${t.note}) <= 500`),
     check('holidays_date_order', sql`${t.endDate} >= ${t.startDate}`),
     index('holidays_range_idx')
       .on(t.startDate, t.endDate)

@@ -1,6 +1,7 @@
 import 'server-only';
 import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
+import type { PgDatabase } from 'drizzle-orm/pg-core';
+import { drizzle, type NeonQueryResultHKT } from 'drizzle-orm/neon-serverless';
 import ws from 'ws';
 import * as schema from './schema';
 
@@ -19,3 +20,8 @@ function create() {
 export function getDb() {
   return (instance ??= create());
 }
+
+export type Db = ReturnType<typeof getDb>;
+export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+/** Either the plain database or a transaction: both can select/insert/update/delete. */
+export type Executor = PgDatabase<NeonQueryResultHKT, typeof schema>;

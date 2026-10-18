@@ -9,8 +9,6 @@ export interface AdminSession {
   id: number;
   name: string;
   email: string;
-  role: 'SUPER_ADMIN' | 'FACULTY_ADMIN';
-  facultyId: number | null;
 }
 
 /** Creates a session and returns the RAW token (for the cookie). Only its hash is stored. */
@@ -33,8 +31,6 @@ export async function findSession(token: string): Promise<AdminSession | null> {
       id: admins.id,
       name: admins.name,
       email: admins.email,
-      role: admins.role,
-      facultyId: admins.facultyId,
     })
     .from(sessions)
     .innerJoin(admins, eq(admins.id, sessions.adminId))

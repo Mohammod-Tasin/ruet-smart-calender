@@ -14,7 +14,9 @@ function dayNumber(s: string): number | null {
   return t.getTime() / 86_400_000; // UTC midnight on both sides: no time-zone effects
 }
 
-const isoDate = z.string().refine((s) => dayNumber(s) !== null, 'must be a real date, YYYY-MM-DD');
+export const isRealDate = (s: string) => dayNumber(s) !== null;
+
+const isoDate = z.string().refine(isRealDate, 'must be a real date, YYYY-MM-DD');
 
 export const holidaysQuerySchema = z
   .object({

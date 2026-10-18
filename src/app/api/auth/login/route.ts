@@ -48,8 +48,6 @@ export async function POST(req: Request) {
           id: usable.id,
           name: usable.name,
           email: usable.email,
-          role: usable.role,
-          facultyId: usable.facultyId,
         },
       },
       { headers: { 'Cache-Control': 'no-store' } },

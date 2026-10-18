@@ -14,9 +14,9 @@
     "db:migrate": "node --env-file-if-exists=.env.local ./node_modules/drizzle-kit/bin.cjs migrate && tsx --env-file-if-exists=.env.local scripts/setup-app-role.ts --revoke-only",
     "db:setup-role": "tsx --env-file-if-exists=.env.local scripts/setup-app-role.ts",
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
-    "db:create-admin": "tsx --env-file-if-exists=.env.local scripts/create-super-admin.ts",
-    "db:sample-holidays": "tsx --env-file-if-exists=.env.local scripts/dev-sample-holidays.ts",
-    "test:auth": "tsx --env-file-if-exists=.env.local scripts/test-auth.ts"
+    "db:create-admin": "tsx --env-file-if-exists=.env.local scripts/create-admin.ts",
+    "test:auth": "tsx --env-file-if-exists=.env.local scripts/test-auth.ts",
+    "test:holidays": "tsx --env-file-if-exists=.env.local scripts/test-holidays.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
