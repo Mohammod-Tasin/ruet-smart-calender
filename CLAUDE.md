@@ -254,6 +254,7 @@ Admin (require session; never cached: `Cache-Control: no-store`):
   `{ conflicts: [...] }` without saving (lets the UI warn while the admin is
   still filling the form)
 - `GET /api/admin/holidays/[id]` — full details incl. createdBy/updatedBy names
+- `GET /api/admin/holidays/deleted` — soft-deleted holidays, newest first (for "Recently deleted")
 - `GET /api/admin/audit?holidayId=` — change history (any admin)
 - Admin accounts, departments and series are managed by scripts only (no API).
 

@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { compressAudience } from '@/core/calendar/compress';
 import { findOverlaps, type Overlap, type OverlapInput } from '@/core/calendar/overlap';
@@ -439,4 +439,15 @@ export async function checkOverlap(
   const problem = await audienceProblem(db, structure, input.audience);
   if (problem) return fail('UNPROCESSABLE', problem);
   return ok({ conflicts: await conflictsFor(db, structure, input, input.excludeId) });
+}
+
+/** Soft-deleted holidays, most recently deleted first (for the "Recently deleted" list). */
+export async function listDeleted(): Promise<{ holidays: HolidayView[] }> {
+  const db = getDb();
+  const [records, structure] = await Promise.all([
+    fetchRecords(db, isNotNull(holidays.deletedAt)),
+    getStructure(db),
+  ]);
+  const recent = records.sort((a, b) => b.deletedAt!.localeCompare(a.deletedAt!)).slice(0, 30);
+  return { holidays: recent.map((r) => view(r, structure)) };
 }
