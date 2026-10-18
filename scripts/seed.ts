@@ -16,7 +16,7 @@ const SEED = [
     ],
   },
   {
-    code: 'CE',
+    code: 'FCE',
     name: 'Civil Engineering',
     depts: [
       ['CE', 'Civil Engineering'],
@@ -26,7 +26,7 @@ const SEED = [
     ],
   },
   {
-    code: 'ME',
+    code: 'FME',
     name: 'Mechanical Engineering',
     depts: [
       ['ME', 'Mechanical Engineering'],

@@ -4,9 +4,9 @@ import type { AudienceEntry, Structure } from '@/core/calendar/types';
 
 // Faculties are listed out of order on purpose: sort_order must decide, not array order.
 const faculties = [
-  { id: 3, code: 'ME', sortOrder: 3 },
+  { id: 3, code: 'FME', sortOrder: 3 },
   { id: 1, code: 'FECE', sortOrder: 1 },
-  { id: 2, code: 'CE', sortOrder: 2 },
+  { id: 2, code: 'FCE', sortOrder: 2 },
 ];
 const depts = {
   EEE: { id: 1, facultyId: 1, code: 'EEE' },
