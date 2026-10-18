@@ -1,7 +1,16 @@
 import 'server-only';
 
-export function jsonError(status: number, code: string, message: string): Response {
-  return Response.json({ error: { code, message } }, { status });
+/** Error responses are never cacheable. */
+export function jsonError(
+  status: number,
+  code: string,
+  message: string,
+  headers?: Record<string, string>,
+): Response {
+  return Response.json(
+    { error: { code, message } },
+    { status, headers: { 'Cache-Control': 'no-store', ...headers } },
+  );
 }
 
 /** Logs the real error server-side; clients only ever see a generic message. */

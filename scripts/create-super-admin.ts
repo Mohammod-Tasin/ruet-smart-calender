@@ -2,33 +2,7 @@ import { createInterface } from 'node:readline/promises';
 import { hash } from '@node-rs/argon2'; // argon2id by default
 import { admins } from '../src/server/db/schema';
 import { connectAsOwner } from './lib/owner-db';
-
-/** Reads a line without echoing it. The password is never written anywhere. */
-function askHidden(prompt: string): Promise<string> {
-  return new Promise((resolve) => {
-    process.stdout.write(prompt);
-    let value = '';
-    const stdin = process.stdin;
-    stdin.setRawMode(true);
-    stdin.resume();
-    stdin.setEncoding('utf8');
-    const onData = (chunk: string) => {
-      for (const c of chunk) {
-        if (c === '\r' || c === '\n') {
-          stdin.setRawMode(false);
-          stdin.pause();
-          stdin.off('data', onData);
-          process.stdout.write('\n');
-          return resolve(value);
-        }
-        if (c === '\u0003') process.exit(130); // Ctrl+C
-        if (c === '\u007f' || c === '\b') value = value.slice(0, -1);
-        else value += c;
-      }
-    };
-    stdin.on('data', onData);
-  });
-}
+import { askHidden } from './lib/prompt';
 
 async function main() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
