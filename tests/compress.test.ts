@@ -5,7 +5,7 @@ import type { AudienceEntry, Structure } from '@/core/calendar/types';
 // Faculties are listed out of order on purpose: sort_order must decide, not array order.
 const faculties = [
   { id: 3, code: 'ME', sortOrder: 3 },
-  { id: 1, code: 'ECE', sortOrder: 1 },
+  { id: 1, code: 'FECE', sortOrder: 1 },
   { id: 2, code: 'CE', sortOrder: 2 },
 ];
 const depts = {
@@ -14,6 +14,7 @@ const depts = {
   CE: { id: 3, facultyId: 2, code: 'CE' },
   ARCH: { id: 4, facultyId: 2, code: 'ARCH' },
   ME: { id: 5, facultyId: 3, code: 'ME' },
+  IPE: { id: 7, facultyId: 3, code: 'IPE' },
   OLD: { id: 6, facultyId: 1, code: 'OLD' }, // only inactive series: must never block "full"
 };
 const departments = Object.values(depts);
@@ -21,7 +22,7 @@ const departments = Object.values(depts);
 /** Series id convention: deptId * 100 + two-digit year. */
 const sid = (dept: keyof typeof depts, yy: number) => depts[dept].id * 100 + yy;
 const series = [
-  ...(['EEE', 'CSE', 'CE', 'ARCH', 'ME'] as const).flatMap((d) =>
+  ...(['EEE', 'CSE', 'CE', 'ARCH', 'ME', 'IPE'] as const).flatMap((d) =>
     [21, 22, 23].map((yy) => ({
       id: sid(d, yy),
       departmentId: depts[d].id,
@@ -50,9 +51,9 @@ const cases: [string, AudienceEntry[], string][] = [
   ['empty audience', [], ''],
   ['one full department', [dep('CSE')], 'CSE'],
   ['full department ignores its inactive series', [dep('CSE'), ser('CSE', 19)], 'CSE'],
-  ['full faculty', [fac(1)], 'ECE Faculty'],
-  ['faculty built from all its departments', [dep('EEE'), dep('CSE')], 'ECE Faculty'],
-  ['faculty ignores departments with no active series', [fac(1)], 'ECE Faculty'],
+  ['full faculty', [fac(1)], 'FECE Faculty'],
+  ['faculty built from all its departments', [dep('EEE'), dep('CSE')], 'FECE Faculty'],
+  ['faculty ignores departments with no active series', [fac(1)], 'FECE Faculty'],
   ['every department collapses to ALL', Object.keys(depts).map((d) => dep(d as 'CSE')), 'ALL'],
   ['every faculty collapses to ALL', [fac(1), fac(2), fac(3)], 'ALL'],
   [
@@ -75,14 +76,14 @@ const cases: [string, AudienceEntry[], string][] = [
   ['only an inactive series gives an empty label', [ser('CSE', 19)], ''],
   ['inactive series is dropped from a mix', [ser('CSE', 23), ser('CSE', 19)], 'CSE-23'],
   [
-    'faculty then department order, not input order (ME is a one-department faculty)',
+    'faculty then department order, not input order',
     [dep('ME'), dep('ARCH'), dep('CSE')],
-    'CSE · ARCH · ME Faculty',
+    'CSE · ARCH · ME',
   ],
   [
     'full faculty beside loose series',
     [dep('EEE'), dep('CSE'), ser('ARCH', 23)],
-    'ECE Faculty · ARCH-23',
+    'FECE Faculty · ARCH-23',
   ],
   ['department code order inside a faculty', [dep('EEE'), ser('CSE', 23)], 'CSE-23 · EEE'],
   ['duplicate entries are harmless', [dep('CSE'), dep('CSE')], 'CSE'],

@@ -6,7 +6,7 @@ const ACTIVE_YEARS = [2021, 2022, 2023, 2024, 2025];
 
 const SEED = [
   {
-    code: 'ECE',
+    code: 'FECE',
     name: 'Electrical & Computer Engineering',
     depts: [
       ['EEE', 'Electrical & Electronic Engineering'],

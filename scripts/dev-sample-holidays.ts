@@ -57,13 +57,12 @@ async function main() {
         ],
       },
       {
-        title: `${PREFIX} Selected series program`,
+        title: `${PREFIX} CSE-23 and ME-22 program`,
         startDate: day(20),
         endDate: day(21),
         audience: [
           { scopeType: 'SERIES' as const, scopeId: await seriesId('CSE', 2023) },
           { scopeType: 'SERIES' as const, scopeId: await seriesId('ME', 2022) },
-          { scopeType: 'SERIES' as const, scopeId: await seriesId('EEE', 2021) },
         ],
       },
     ];
