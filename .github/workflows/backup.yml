@@ -1,0 +1,37 @@
+name: Backup
+
+on:
+  schedule:
+    # GitHub cron is UTC. 21:00 UTC = 03:00 Asia/Dhaka (UTC+6, no DST).
+    - cron: '0 21 * * *'
+  workflow_dispatch: # "Run workflow" button in the Actions tab
+
+jobs:
+  pg_dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Dump database
+        env:
+          DATABASE_URL_OWNER: ${{ secrets.DATABASE_URL_OWNER }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DATABASE_URL_OWNER" ]; then
+            echo "Secret DATABASE_URL_OWNER is not set" >&2
+            exit 1
+          fi
+          # pg_dump needs a direct (non-pooled) connection: drop "-pooler" from the host.
+          DIRECT_URL="${DATABASE_URL_OWNER/-pooler/}"
+          # Run pg_dump from the postgres:17 image so its version is >= Neon's server version.
+          # --no-owner/--no-acl: the dump restores into any database; run `npm run db:setup-role` after.
+          docker run --rm -e DIRECT_URL="$DIRECT_URL" -v "$PWD:/out" postgres:17 \
+            sh -c 'pg_dump --format=custom --no-owner --no-acl --file=/out/ruet-calendar.dump "$DIRECT_URL"'
+          mv ruet-calendar.dump "ruet-calendar-$(date -u +%Y-%m-%d).dump"
+          ls -l *.dump
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruet-calendar-db-${{ github.run_id }}
+          path: '*.dump'
+          retention-days: 30
+          if-no-files-found: error
