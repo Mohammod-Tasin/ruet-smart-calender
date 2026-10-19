@@ -22,9 +22,9 @@ jobs:
           fi
           # pg_dump needs a direct (non-pooled) connection: drop "-pooler" from the host.
           DIRECT_URL="${DATABASE_URL_OWNER/-pooler/}"
-          # Run pg_dump from the postgres:17 image so its version is >= Neon's server version.
+          # Run pg_dump from the postgres:18 image so its version matches Neon (PostgreSQL 18).
           # --no-owner/--no-acl: the dump restores into any database; run `npm run db:setup-role` after.
-          docker run --rm -e DIRECT_URL="$DIRECT_URL" -v "$PWD:/out" postgres:17 \
+          docker run --rm -e DIRECT_URL="$DIRECT_URL" -v "$PWD:/out" postgres:18 \
             sh -c 'pg_dump --format=custom --no-owner --no-acl --file=/out/ruet-calendar.dump "$DIRECT_URL"'
           mv ruet-calendar.dump "ruet-calendar-$(date -u +%Y-%m-%d).dump"
           ls -l *.dump

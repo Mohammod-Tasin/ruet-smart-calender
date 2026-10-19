@@ -65,7 +65,7 @@ Schema changes: `npm run db:generate`, commit the new SQL in `drizzle/`, then ru
 and can be started manually from **Actions → Backup → Run workflow**. Each run uploads a
 `.dump` artifact kept for 30 days. It needs the repository secret `DATABASE_URL_OWNER`.
 
-Restore (into an empty Neon database, with `pg_restore` v17 installed):
+Restore (into an empty Neon database, with `pg_restore` v18 installed):
 
 ```bash
 # 1. download the artifact from the Actions run and unzip it
