@@ -5,7 +5,7 @@ export interface GridCell {
   date: string; // "YYYY-MM-DD"
   day: number;
   inMonth: boolean;
-  weekday: number; // 0 = Sunday
+  weekday: number; // 0 = Sunday ... 6 = Saturday (JS getUTCDay)
   isOff: boolean; // weekly off day (config, not a holiday row)
 }
 
@@ -22,23 +22,22 @@ export function parseOffDays(value: string | undefined): number[] {
   return days.length > 0 ? days : [5, 6];
 }
 
-/** 6 weeks x 7 days = 42 cells, week starts Sunday. `month` is 1-12. UTC maths: no time zones. */
+/** 6 weeks x 7 days = 42 cells, week starts Saturday. `month` is 1-12. UTC maths: no time zones. */
 export function buildMonthGrid(
   year: number,
   month: number,
   offDays: number[] = [5, 6],
 ): GridCell[] {
   const first = Date.UTC(year, month - 1, 1);
-  const start = first - new Date(first).getUTCDay() * DAY_MS;
+  const start = first - ((new Date(first).getUTCDay() + 1) % 7) * DAY_MS; // back to the Saturday
   return Array.from({ length: 42 }, (_, i) => {
     const t = new Date(start + i * DAY_MS);
-    const weekday = i % 7;
     return {
       date: toIso(t),
       day: t.getUTCDate(),
       inMonth: t.getUTCMonth() === month - 1,
-      weekday,
-      isOff: offDays.includes(weekday),
+      weekday: t.getUTCDay(),
+      isOff: offDays.includes(t.getUTCDay()),
     };
   });
 }

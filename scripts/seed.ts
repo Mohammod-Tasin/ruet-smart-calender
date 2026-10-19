@@ -6,7 +6,7 @@ const ACTIVE_YEARS = [2021, 2022, 2023, 2024, 2025];
 
 const SEED = [
   {
-    code: 'FECE',
+    code: 'ECE',
     name: 'Electrical & Computer Engineering',
     depts: [
       ['EEE', 'Electrical & Electronic Engineering'],
@@ -16,7 +16,7 @@ const SEED = [
     ],
   },
   {
-    code: 'FCE',
+    code: 'CE',
     name: 'Civil Engineering',
     depts: [
       ['CE', 'Civil Engineering'],
@@ -26,7 +26,7 @@ const SEED = [
     ],
   },
   {
-    code: 'FME',
+    code: 'ME',
     name: 'Mechanical Engineering',
     depts: [
       ['ME', 'Mechanical Engineering'],
@@ -39,9 +39,19 @@ const SEED = [
   },
 ] as const;
 
+// Faculty codes used to be FECE / FCE / FME. Renaming in place keeps ids and holiday audiences.
+const RENAMES = [
+  ['FECE', 'ECE'],
+  ['FCE', 'CE'],
+  ['FME', 'ME'],
+] as const;
+
 async function main() {
   const { db, pool } = connectAsOwner();
   try {
+    for (const [from, to] of RENAMES) {
+      await db.update(faculties).set({ code: to }).where(eq(faculties.code, from));
+    }
     // Idempotent: unique constraints + ON CONFLICT DO NOTHING make re-runs safe.
     for (const [i, f] of SEED.entries()) {
       await db

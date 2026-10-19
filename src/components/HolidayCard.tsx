@@ -3,7 +3,7 @@ import { dateRange, stamp } from '@/lib/format';
 
 export const labelColor = (label: string) =>
   label === 'ALL'
-    ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200'
+    ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200'
     : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200';
 
 /** Title, audience, dates, note and "set by". `actions` is the admin's button row. */

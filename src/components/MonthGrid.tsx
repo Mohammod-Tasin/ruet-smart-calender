@@ -4,7 +4,7 @@ import type { PublicHoliday } from '@/lib/api';
 import { longDate } from '@/lib/format';
 import { labelColor } from './HolidayCard';
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAYS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 const MAX_SLOTS = 2;
 
 const holidayIdOf = (target: EventTarget) =>

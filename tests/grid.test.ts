@@ -12,15 +12,15 @@ import {
 describe('buildMonthGrid', () => {
   // [year, month, first cell, last cell]
   test.each([
-    [2026, 10, '2026-09-27', '2026-11-07'], // Oct 1 is a Thursday
-    [2026, 2, '2026-02-01', '2026-03-14'], // Feb 1 is a Sunday: no leading days
-    [2028, 2, '2028-01-30', '2028-03-11'], // leap year
-    [2026, 1, '2025-12-28', '2026-02-07'], // crosses the year boundary
+    [2026, 10, '2026-09-26', '2026-11-06'], // Oct 1 is a Thursday
+    [2026, 2, '2026-01-31', '2026-03-13'], // Feb 1 is a Sunday: one leading day
+    [2028, 2, '2028-01-29', '2028-03-10'], // leap year
+    [2026, 1, '2025-12-27', '2026-02-06'], // crosses the year boundary
   ])('%i-%i spans %s .. %s', (y, m, first, last) => {
     const cells = buildMonthGrid(y, m);
     expect(cells).toHaveLength(42);
     expect(cells[0]!.date).toBe(first);
-    expect(cells[0]!.weekday).toBe(0);
+    expect(cells[0]!.weekday).toBe(6); // Saturday
     expect(cells[41]!.date).toBe(last);
   });
 

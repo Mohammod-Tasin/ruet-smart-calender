@@ -29,7 +29,7 @@ Users:
 
 ```
 University
- └── Faculty        (e.g. FECE = Electrical & Computer)
+ └── Faculty        (e.g. ECE = Electrical & Computer)
       └── Department (CSE, EEE, ECE, ETE ...)
            └── Series (identified by intake year: CSE-23 = CSE intake 2023)
 ```
@@ -218,7 +218,7 @@ Given a holiday's audience and the current set of active series, produce a
 display label, collapsing bottom-up:
 
 1. All active series of a department present → show department code (`CSE`).
-2. All departments of a faculty present → show faculty label (`FECE Faculty`).
+2. All departments of a faculty present → show faculty label (`ECE Faculty`).
 3. All departments present → `ALL`.
    Order: faculty sort_order, then department code, then intake year descending.
    Series format: `CSE-23` (department code + last two digits of intake year).
@@ -335,10 +335,10 @@ WEEKLY_OFF_DAYS=FRI,SAT
 
 Undergraduate degree-awarding departments (14):
 
-- Faculty of Electrical & Computer Engineering (FECE): EEE, CSE, ECE, ETE
-  (faculty codes are FECE, FCE and FME, so they never clash with department codes)
-- Faculty of Civil Engineering (FCE): CE, ARCH, URP, BECM
-- Faculty of Mechanical Engineering (FME): ME, IPE, CME, MTE, MSE, ChE
+- Faculty of Electrical & Computer Engineering (ECE): EEE, CSE, ECE, ETE
+  (faculty codes ECE, CE, ME may equal a department code; labels add " Faculty" to tell them apart)
+- Faculty of Civil Engineering (CE): CE, ARCH, URP, BECM
+- Faculty of Mechanical Engineering (ME): ME, IPE, CME, MTE, MSE, ChE
 
 Active undergraduate series: 2021, 2022, 2023, 2024, and 2025. Seed
 each active series for every undergraduate degree-awarding department.
