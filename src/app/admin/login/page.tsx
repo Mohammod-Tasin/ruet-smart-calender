@@ -1,6 +1,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { api } from '@/lib/api';
 
 export default function AdminLoginPage() {
@@ -29,7 +30,10 @@ export default function AdminLoginPage() {
     'mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900';
   return (
     <main className="mx-auto max-w-sm px-4 py-12">
-      <h1 className="text-xl font-bold">Admin sign in</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">Admin sign in</h1>
+        <ThemeToggle />
+      </div>
       <form onSubmit={submit} className="mt-6 space-y-4">
         <label className="block text-sm font-medium">
           Email

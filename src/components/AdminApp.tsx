@@ -17,6 +17,7 @@ import { HolidayEditor, type EditorTarget } from './HolidayEditor';
 import { MonthGrid } from './MonthGrid';
 import { MonthHeader } from './MonthHeader';
 import { Sheet } from './Sheet';
+import { ThemeToggle } from './ThemeToggle';
 import { ToastProvider, useToast } from './Toast';
 
 const order = (a: string, b: string) => (a <= b ? { start: a, end: b } : { start: b, end: a });
@@ -159,6 +160,7 @@ function Admin({ offDays }: { offDays: number[] }) {
     <main className="mx-auto max-w-5xl space-y-4 px-2 py-3 sm:px-4">
       <header className="flex items-center gap-2 px-1">
         <h1 className="mr-auto text-xl font-bold">Admin</h1>
+        <ThemeToggle />
         <span className="hidden text-sm text-zinc-600 sm:inline dark:text-zinc-400">{me.name}</span>
         <button type="button" className={small} onClick={logout}>
           Log out

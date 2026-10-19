@@ -1,7 +1,13 @@
 @import 'tailwindcss';
 
+/* Theme is a class on <html> (set by the script in layout.tsx), not the OS setting. Default: light. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+}
+:root.dark {
+  color-scheme: dark;
 }
 
 /* Don't scroll the page behind an open sheet. */
