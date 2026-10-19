@@ -3,3 +3,8 @@
 :root {
   color-scheme: light dark;
 }
+
+/* Don't scroll the page behind an open sheet. */
+body:has(dialog[open]) {
+  overflow: hidden;
+}
