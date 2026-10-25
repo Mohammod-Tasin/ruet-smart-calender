@@ -6,6 +6,7 @@ import { milestones } from '@/core/semester/impact';
 import {
   computeTimeline,
   DEFAULT_TEMPLATE,
+  delayGroups,
   stateOn,
   weekStartOf,
   type Template,
@@ -460,5 +461,93 @@ describe('2026 sanity checks with the real seeded RUET rules (Sat-Wed weeks)', (
     const state = stateOn(sem, DEFAULT_TEMPLATE, '2026-01-10');
     expect(state.delayedWeeks).toBeGreaterThanOrEqual(5);
     expect(state.reasons.length).toBeGreaterThan(0);
+  });
+});
+
+describe('delayGroups: one entry per vacation, not per week', () => {
+  const titled = (ranges: [string, string, string][]) => {
+    const on = (d: string) => ranges.filter(([s, e]) => s <= d && d <= e).map(([, , t]) => t);
+    return { isOffDay: (d: string) => on(d).length > 0, titlesOn: on };
+  };
+
+  test('Ramadan + Eid over 5 weeks read as one line with both titles', () => {
+    const tl = run(
+      titled([
+        ['2026-10-17', '2026-11-04', 'পবিত্র রমজানের অবকাশ'],
+        ['2026-10-31', '2026-11-18', 'ঈদ-উল-ফিতর'],
+      ]),
+    );
+    expect(delayGroups(tl)).toEqual([
+      {
+        reason: 'পবিত্র রমজানের অবকাশ ও ঈদ-উল-ফিতর',
+        weeks: 5,
+        from: '2026-10-17',
+        to: '2026-11-14',
+      },
+    ]);
+    expect(stateOn(tl, DEFAULT_TEMPLATE, '2026-12-01').reasons).toHaveLength(1);
+  });
+
+  test('separate vacations stay separate; the same title in a run is not repeated', () => {
+    const tl = run(
+      titled([
+        ['2026-10-17', '2026-11-04', 'শীতকালীন ছুটি'], // 3 weeks (17, 24, 31 Oct)
+        ['2026-12-05', '2026-12-09', 'সনাতনী ছুটি'], // 1 week
+      ]),
+    );
+    expect(delayGroups(tl).map((g) => [g.reason, g.weeks])).toEqual([
+      ['শীতকালীন ছুটি', 3],
+      ['সনাতনী ছুটি', 1],
+    ]);
+  });
+
+  test('an admin extension next to a holiday is still listed', () => {
+    const tl = run({
+      ...titled([['2026-10-17', '2026-10-21', 'সনাতনী ছুটি']]),
+      weekOverrides: [{ weekStart: '2026-10-24', mode: 'FORCE_EXTEND' }],
+    });
+    expect(delayGroups(tl)).toHaveLength(1);
+    expect(delayGroups(tl)[0]).toMatchObject({ weeks: 2, from: '2026-10-17', to: '2026-10-24' });
+  });
+
+  test('no delays, no groups', () => {
+    expect(delayGroups(run())).toEqual([]);
+  });
+});
+
+describe('stateOn: phase week numbers and progress for a series that joined mid-semester', () => {
+  test('phaseWeek / phaseWeeks', () => {
+    const tl = run();
+    expect(stateOn(tl, DEFAULT_TEMPLATE, '2026-11-03')).toMatchObject({
+      phaseWeek: 5,
+      phaseWeeks: 13,
+    });
+    expect(stateOn(tl, DEFAULT_TEMPLATE, '2027-01-11')).toMatchObject({
+      phaseWeek: 1,
+      phaseWeeks: 1,
+    });
+    expect(stateOn(tl, DEFAULT_TEMPLATE, '2027-01-27')).toMatchObject({
+      phaseWeek: 2,
+      phaseWeeks: 4,
+    });
+  });
+
+  test('a go-live checkpoint (start = checkpoint date) does not make progress start at zero', () => {
+    const tl = run({
+      startDate: '2026-11-07',
+      checkpoints: [{ asOfDate: '2026-11-07', phase: 'CLASS', weekIndex: 9 }],
+    });
+    // 8 class weeks + the mid break are behind; with this week that is 10 of 19
+    const s = stateOn(tl, DEFAULT_TEMPLATE, '2026-11-08');
+    expect(s).toMatchObject({ classWeekNo: 9, phaseWeek: 9, phaseWeeks: 13 });
+    expect(s.progress).toBeCloseTo(10 / 19);
+  });
+
+  test('a checkpoint in the first block', () => {
+    const tl = run({
+      startDate: '2026-11-07',
+      checkpoints: [{ asOfDate: '2026-11-07', phase: 'CLASS', weekIndex: 3 }],
+    });
+    expect(stateOn(tl, DEFAULT_TEMPLATE, '2026-11-08').progress).toBeCloseTo(3 / 19);
   });
 });

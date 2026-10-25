@@ -6,6 +6,7 @@ import { isRealDate } from '@/core/validation/holidays-query';
 import { api, type ApiStructure, type Conflict, type FullHoliday } from '@/lib/api';
 import { dateRange, stamp } from '@/lib/format';
 import { AudiencePicker } from './AudiencePicker';
+import { ImpactPreview } from './ImpactPreview';
 import { Sheet } from './Sheet';
 
 export type EditorTarget =
@@ -122,6 +123,17 @@ function HolidayForm({
   const checkable = datesOk && audience.length > 0;
   const shown = checkable ? conflicts : [];
   const audienceKey = JSON.stringify(audience);
+  // What this save would do to the semesters (an edit replaces the old version of itself).
+  const impactChange = useMemo(
+    () =>
+      checkable
+        ? {
+            removeIds: initial.excludeId ? [initial.excludeId] : undefined,
+            add: [{ startDate: start, endDate: end, audience }],
+          }
+        : null,
+    [checkable, initial.excludeId, start, end, audience],
+  );
 
   // Debounced live overlap check while the admin edits dates or audience.
   useEffect(() => {
@@ -278,6 +290,8 @@ function HolidayForm({
           </section>
         )}
       </div>
+
+      <ImpactPreview change={impactChange} />
 
       {error && (
         <p role="alert" className="text-sm text-red-700 dark:text-red-400">

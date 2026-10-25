@@ -15,6 +15,8 @@ import { dateRange, stamp } from '@/lib/format';
 import { useMonthHolidays, useStructure } from '@/lib/hooks';
 import { HolidayCard } from './HolidayCard';
 import { HolidayEditor, type EditorTarget } from './HolidayEditor';
+import { ImpactPreview } from './ImpactPreview';
+import { Reminders } from './Reminders';
 import { MonthGrid } from './MonthGrid';
 import { MonthHeader } from './MonthHeader';
 import { Sheet } from './Sheet';
@@ -164,12 +166,17 @@ function Admin({ offDays }: { offDays: number[] }) {
         <Link href="/admin/yearly" className={small}>
           Yearly holidays
         </Link>
+        <Link href="/admin/semesters" className={small}>
+          সেমিস্টার
+        </Link>
         <ThemeToggle />
         <span className="hidden text-sm text-zinc-600 sm:inline dark:text-zinc-400">{me.name}</span>
         <button type="button" className={small} onClick={logout}>
           Log out
         </button>
       </header>
+
+      <Reminders />
 
       <MonthHeader
         ym={ym}
@@ -250,6 +257,9 @@ function Admin({ offDays }: { offDays: number[] }) {
                     ) : confirmId === id ? (
                       <>
                         <span className="self-center text-sm">Delete this holiday?</span>
+                        <div className="basis-full">
+                          <ImpactPreview change={{ removeIds: [id] }} />
+                        </div>
                         <button
                           type="button"
                           disabled={busyId === id}

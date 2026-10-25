@@ -51,6 +51,7 @@ export interface Conflict {
 export interface AuditEntry {
   id: number;
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE';
+  entityType?: string;
   admin: Person;
   at: string;
   before: Record<string, unknown> | null;

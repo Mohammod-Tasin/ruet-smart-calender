@@ -65,6 +65,8 @@ export interface TimelineWeek {
   classWeekNo: number | null;
   status: WeekStatus;
   reason: string | null;
+  /** Holiday titles behind a HOLIDAY_SKIPPED week (empty otherwise). */
+  titles: string[];
 }
 
 export interface Timeline {
@@ -143,6 +145,7 @@ export function computeTimeline(input: TimelineInput): Timeline {
         classWeekNo: null,
         status: 'FORCED_SKIP',
         reason: `Waiting for the fixed start of ${template[s]!.phase}`,
+        titles: [],
       });
       continue;
     }
@@ -172,6 +175,7 @@ export function computeTimeline(input: TimelineInput): Timeline {
         classWeekNo: null,
         status: fullyOff ? 'HOLIDAY_SKIPPED' : 'FORCED_SKIP',
         reason: fullyOff ? titles.join(', ') || 'Holiday week' : 'Extended by admin',
+        titles: fullyOff ? titles : [],
       });
       continue;
     }
@@ -189,6 +193,7 @@ export function computeTimeline(input: TimelineInput): Timeline {
         : pinnedStart
           ? 'Fixed start date, counted although the whole week is off'
           : 'Counted although the whole week is off',
+      titles: [],
     });
     if (++d >= seg.weeks) ({ s, d } = { s: s + 1, d: 0 });
   }
@@ -221,10 +226,57 @@ export interface SemesterState {
   nextMilestone: { phase: Phase | 'ENDED'; date: string } | null;
   /** Weeks pushed back by holidays / admin, in the whole timeline. */
   delayedWeeks: number;
-  /** One entry per delaying reason, e.g. "দুর্গাপূজা: +1 সপ্তাহ" data. */
-  reasons: { reason: string; weeks: number }[];
+  /** Delays grouped by holiday: "পবিত্র রমজানের অবকাশ ও ঈদ-উল-ফিতর: +5 weeks". */
+  reasons: DelayGroup[];
   /** This very week is a skipped (holiday) week. */
   onSkippedWeek: boolean;
+  /** Week number inside the current phase, and how many weeks the phase has (both null if n/a). */
+  phaseWeek: number | null;
+  phaseWeeks: number | null;
+}
+
+/** A run of consecutive skipped weeks, named after the holidays behind it. */
+export interface DelayGroup {
+  reason: string;
+  weeks: number;
+  from: string; // first skipped week's Saturday
+  to: string; // last skipped week's Saturday
+}
+
+/**
+ * Skipped weeks are grouped into runs of consecutive weeks (one vacation = one entry), and each
+ * run is named by its distinct holiday titles in order, joined with " ও ". So Ramadan + Eid
+ * reads "পবিত্র রমজানের অবকাশ ও ঈদ-উল-ফিতর: 5 weeks", not one line per week.
+ */
+export function delayGroups(tl: Timeline): DelayGroup[] {
+  const groups: (DelayGroup & { titles: Set<string> })[] = [];
+  for (const w of tl.weeks) {
+    if (w.status === 'COUNTED') continue;
+    const last = groups[groups.length - 1];
+    const label = w.titles.length > 0 ? w.titles : [w.reason ?? 'Delay'];
+    if (last && addDays(last.to, 7) === w.weekStart) {
+      last.to = w.weekStart;
+      last.weeks++;
+      for (const t of label) last.titles.add(t);
+    } else {
+      groups.push({
+        reason: '',
+        weeks: 1,
+        from: w.weekStart,
+        to: w.weekStart,
+        titles: new Set(label),
+      });
+    }
+  }
+  return groups.map(({ titles, ...g }) => ({ ...g, reason: [...titles].join(' ও ') }));
+}
+
+/** Template weeks already behind the first week shown (a series that joined mid-semester). */
+function weeksBefore(tl: Timeline, template: Template): number {
+  const first = tl.weeks.find((w) => w.status === 'COUNTED');
+  if (!first?.phaseWeekIndex) return 0;
+  const sameBefore = sumWeeks(template, first.segment, (p) => p.phase === first.phase);
+  return sumWeeks(template, first.segment, () => true) + (first.phaseWeekIndex - 1 - sameBefore);
 }
 
 const PHASE_NAME: Record<Phase, string> = {
@@ -242,13 +294,12 @@ export function stateOn(
 ): SemesterState {
   const total = template.reduce((n, p) => n + p.weeks, 0);
   const skipped = tl.weeks.filter((x) => x.status !== 'COUNTED');
-  const byReason = new Map<string, number>();
-  for (const x of skipped)
-    byReason.set(x.reason ?? 'Delay', (byReason.get(x.reason ?? 'Delay') ?? 0) + 1);
   const base = {
     totalClassWeeks: tl.totalClassWeeks,
     delayedWeeks: skipped.length,
-    reasons: [...byReason].map(([reason, weeks]) => ({ reason, weeks })),
+    reasons: delayGroups(tl),
+    phaseWeek: null as number | null,
+    phaseWeeks: null as number | null,
   };
 
   // Marked done by an admin: nothing is coming, whatever the weeks say.
@@ -316,7 +367,9 @@ export function stateOn(
     phase: now.phase,
     label,
     classWeekNo: now.classWeekNo,
-    progress: Math.min(1, counted / total),
+    phaseWeek: now.status === 'COUNTED' ? shown : null,
+    phaseWeeks,
+    progress: Math.min(1, (weeksBefore(tl, template) + counted) / total),
     nextMilestone: next,
     onSkippedWeek: now.status !== 'COUNTED',
   };

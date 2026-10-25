@@ -10,7 +10,9 @@ import { HolidayCard } from './HolidayCard';
 import { MonthGrid } from './MonthGrid';
 import { MonthHeader } from './MonthHeader';
 import { Sheet } from './Sheet';
+import { SeriesStateLine } from './SeriesStateLine';
 import { ThemeToggle } from './ThemeToggle';
+import { TopNav } from './TopNav';
 
 const select =
   'rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900';
@@ -66,6 +68,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
         <h1 className="text-xl font-bold sm:text-2xl">RUET Holiday Calendar</h1>
         <ThemeToggle />
       </div>
+      <TopNav />
       <MonthHeader
         ym={ym}
         onPrev={() => goto(shiftMonth(ym, -1))}
@@ -126,6 +129,8 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
           </button>
         )}
       </div>
+
+      {seriesRow && <SeriesStateLine seriesId={seriesRow.id} today={today} />}
 
       {failed || structureFailed ? (
         <div

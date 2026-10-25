@@ -46,10 +46,14 @@ export function AudiencePicker({
   structure,
   selected,
   onChange,
+  legend = 'Who is off?',
+  allLabel = 'ALL (whole university)',
 }: {
   structure: ApiStructure;
   selected: Set<number>;
   onChange: (next: Set<number>) => void;
+  legend?: string;
+  allLabel?: string;
 }) {
   const toggle = (ids: number[], on: boolean) => {
     const next = new Set(selected);
@@ -67,13 +71,13 @@ export function AudiencePicker({
 
   return (
     <fieldset className="space-y-3 text-sm">
-      <legend className="mb-1 font-medium">Who is off?</legend>
+      <legend className="mb-1 font-medium">{legend}</legend>
       <Check
         {...state(allIds, selected)}
         onChange={(on) => toggle(allIds, on)}
         className="font-semibold"
       >
-        ALL (whole university)
+        {allLabel}
       </Check>
       {structure.faculties.map((f) => {
         const depts = structure.departments.filter(

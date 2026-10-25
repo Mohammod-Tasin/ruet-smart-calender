@@ -11,7 +11,9 @@ import { api, type ApiStructure } from '@/lib/api';
 import { dateRange, stamp } from '@/lib/format';
 import { useStructure } from '@/lib/hooks';
 import { HIJRI_MONTHS, KIND_LABEL, WEEKDAYS_BN, bn, ruleSummary } from '@/lib/rule-summary';
+import type { ImpactGroup } from '@/core/semester/impact';
 import { AudiencePicker } from './AudiencePicker';
+import { hasChange, ImpactGroups, ImpactPreview } from './ImpactPreview';
 import { Sheet } from './Sheet';
 import { ThemeToggle } from './ThemeToggle';
 import { ToastProvider, useToast } from './Toast';
@@ -65,6 +67,11 @@ function Yearly() {
   const [version, setVersion] = useState(0);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  const [pending, setPending] = useState<{
+    title: string;
+    groups: ImpactGroup[];
+    apply: () => void;
+  } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -108,13 +115,36 @@ function Yearly() {
   const override = (rule: RuleItem, body: Record<string, unknown>, done: string) =>
     send(`/${rule.id}/overrides`, 'PUT', { year, ...body }, done, rule.id);
 
+  /**
+   * One-click changes ask the server what they would do to running semesters first. If nothing
+   * moves, the change is applied straight away; otherwise the admin sees the impact and confirms.
+   */
+  async function guarded(
+    rule: RuleItem,
+    newDates: { startDate: string; endDate: string } | null,
+    title: string,
+    apply: () => void,
+  ) {
+    const change = {
+      removeIds: rule.yearInfo?.final ? [`rule:${rule.id}:${year}`] : undefined,
+      add: newDates ? [{ ...newDates, audience: rule.audience }] : undefined,
+    };
+    if (!hasChange(change)) return apply();
+    const r = await api<{ groups: ImpactGroup[] }>('/api/admin/impact', {
+      method: 'POST',
+      body: change,
+    });
+    if (r.ok && r.data.groups.length > 0) setPending({ title, groups: r.data.groups, apply });
+    else apply();
+  }
+
   function shift(rule: RuleItem, n: number) {
     const info = rule.yearInfo?.final ?? rule.yearInfo?.computed;
     if (!info) return;
-    void override(
-      rule,
-      { startDate: addDays(info.startDate, n), endDate: addDays(info.endDate, n) },
-      `Moved ${n > 0 ? '+' : '−'}1 day.`,
+    const dates = { startDate: addDays(info.startDate, n), endDate: addDays(info.endDate, n) };
+    const sign = n > 0 ? '+' : '−';
+    void guarded(rule, dates, `${rule.title}: ${sign}1 day`, () =>
+      override(rule, dates, `Moved ${sign}1 day.`),
     );
   }
 
@@ -216,10 +246,22 @@ function Yearly() {
               onShift={(n) => shift(r, n)}
               onConfirm={() => override(r, { confirmed: true }, 'Confirmed.')}
               onSkip={(skipped) =>
-                override(r, { skipped }, skipped ? `Skipped for ${year}.` : `Restored for ${year}.`)
+                guarded(
+                  r,
+                  skipped ? null : (r.yearInfo?.computed ?? null),
+                  `${r.title}: ${skipped ? 'skip' : 'include'} ${year}`,
+                  () =>
+                    override(
+                      r,
+                      { skipped },
+                      skipped ? `Skipped for ${year}.` : `Restored for ${year}.`,
+                    ),
+                )
               }
               onReset={() =>
-                send(`/${r.id}/overrides`, 'DELETE', { year }, 'Back to computed dates.', r.id)
+                guarded(r, r.yearInfo?.computed ?? null, `${r.title}: back to computed dates`, () =>
+                  send(`/${r.id}/overrides`, 'DELETE', { year }, 'Back to computed dates.', r.id),
+                )
               }
             />
           ))}
@@ -258,10 +300,35 @@ function Yearly() {
           }
         />
       )}
+      {pending && (
+        <Sheet title="সেমিস্টারে প্রভাব" onClose={() => setPending(null)}>
+          <div className="space-y-4">
+            <p className="text-sm font-medium">{pending.title}</p>
+            <ImpactGroups groups={pending.groups} />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white"
+                onClick={() => {
+                  const run = pending.apply;
+                  setPending(null);
+                  run();
+                }}
+              >
+                তবুও করুন
+              </button>
+              <button type="button" className={small} onClick={() => setPending(null)}>
+                বাতিল
+              </button>
+            </div>
+          </div>
+        </Sheet>
+      )}
       {dialog?.kind === 'dates' && (
         <DatesForm
           rule={dialog.rule}
           year={dialog.year}
+          current={!!dialog.rule.yearInfo?.final && dialog.year === year}
           onClose={() => setDialog(null)}
           onSave={(body) =>
             send(
@@ -455,11 +522,14 @@ function EndForm({
 function DatesForm({
   rule,
   year,
+  current,
   onClose,
   onSave,
 }: {
   rule: RuleItem;
   year: number;
+  /** the rule currently shows dates for this year (they would be replaced) */
+  current: boolean;
   onClose: () => void;
   onSave: (body: Record<string, unknown>) => void;
 }) {
@@ -468,6 +538,12 @@ function DatesForm({
   const [end, setEnd] = useState(known?.endDate ?? '');
   const [note, setNote] = useState(rule.yearInfo?.note ?? '');
   const ok = !!start && !!end && end >= start;
+  const impactChange = ok
+    ? {
+        removeIds: current ? [`rule:${rule.id}:${year}`] : undefined,
+        add: [{ startDate: start, endDate: end, audience: rule.audience }],
+      }
+    : null;
   return (
     <Sheet title={`${rule.title} · ${year}`} onClose={onClose}>
       <form
@@ -521,6 +597,7 @@ function DatesForm({
         {rule.params.kind === 'HIJRI' && (
           <p className="text-xs text-zinc-500">Saving exact dates also confirms them.</p>
         )}
+        <ImpactPreview change={impactChange} />
         <FormButtons label="Save dates" onClose={onClose} disabled={!ok} />
       </form>
     </Sheet>
