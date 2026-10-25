@@ -8,6 +8,7 @@ import { dateRange, stamp } from '@/lib/format';
 import { AudiencePicker } from './AudiencePicker';
 import { ImpactPreview } from './ImpactPreview';
 import { Sheet } from './Sheet';
+import { TrimHint } from './TrimHint';
 
 export type EditorTarget =
   { kind: 'new'; start: string; end: string } | { kind: 'edit'; id: number };
@@ -30,6 +31,7 @@ const sameSet = (a: Set<number>, b: Set<number>) =>
 
 interface FormProps {
   structure: ApiStructure;
+  offDays: number[];
   onClose: () => void;
   onDone: (message: string) => void;
   onEditExisting: (id: number) => void;
@@ -106,6 +108,7 @@ function HolidayForm({
   onClose,
   onDone,
   onEditExisting,
+  offDays,
 }: FormProps & { initial: Initial }) {
   const [title, setTitle] = useState(initial.title);
   const [note, setNote] = useState(initial.note);
@@ -270,6 +273,15 @@ function HolidayForm({
           />
         </label>
       </div>
+      <TrimHint
+        start={start}
+        end={end}
+        offDays={offDays}
+        onTrim={(r) => {
+          setStart(r.startDate);
+          setEnd(r.endDate);
+        }}
+      />
 
       <AudiencePicker structure={structure} selected={selected} onChange={setSelected} />
 

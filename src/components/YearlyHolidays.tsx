@@ -16,6 +16,7 @@ import { AudiencePicker } from './AudiencePicker';
 import { hasChange, ImpactGroups, ImpactPreview } from './ImpactPreview';
 import { Sheet } from './Sheet';
 import { ThemeToggle } from './ThemeToggle';
+import { TrimHint } from './TrimHint';
 import { ToastProvider, useToast } from './Toast';
 
 interface RuleItem extends RuleDef {
@@ -42,10 +43,10 @@ const small =
 const field =
   'mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900';
 
-export function YearlyHolidays() {
+export function YearlyHolidays({ offDays }: { offDays: number[] }) {
   return (
     <ToastProvider>
-      <Yearly />
+      <Yearly offDays={offDays} />
     </ToastProvider>
   );
 }
@@ -55,7 +56,7 @@ type Dialog =
   | { kind: 'end'; rule: RuleItem }
   | { kind: 'dates'; rule: RuleItem; year: number };
 
-function Yearly() {
+function Yearly({ offDays }: { offDays: number[] }) {
   const router = useRouter();
   const toast = useToast();
   const params = useSearchParams();
@@ -327,6 +328,7 @@ function Yearly() {
       {dialog?.kind === 'dates' && (
         <DatesForm
           rule={dialog.rule}
+          offDays={offDays}
           year={dialog.year}
           current={!!dialog.rule.yearInfo?.final && dialog.year === year}
           onClose={() => setDialog(null)}
@@ -523,10 +525,12 @@ function DatesForm({
   rule,
   year,
   current,
+  offDays,
   onClose,
   onSave,
 }: {
   rule: RuleItem;
+  offDays: number[];
   year: number;
   /** the rule currently shows dates for this year (they would be replaced) */
   current: boolean;
@@ -597,6 +601,15 @@ function DatesForm({
         {rule.params.kind === 'HIJRI' && (
           <p className="text-xs text-zinc-500">Saving exact dates also confirms them.</p>
         )}
+        <TrimHint
+          start={start}
+          end={end}
+          offDays={offDays}
+          onTrim={(r) => {
+            setStart(r.startDate);
+            setEnd(r.endDate);
+          }}
+        />
         <ImpactPreview change={impactChange} />
         <FormButtons label="Save dates" onClose={onClose} disabled={!ok} />
       </form>

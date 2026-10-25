@@ -349,6 +349,7 @@ function Admin({ offDays }: { offDays: number[] }) {
         <HolidayEditor
           key={editor.key}
           structure={structure}
+          offDays={offDays}
           target={editor.target}
           onClose={closeEditor}
           onEditExisting={(id) => setEditor({ target: { kind: 'edit', id }, key: Date.now() })}
