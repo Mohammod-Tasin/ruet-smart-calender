@@ -14,8 +14,10 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { RuleParams } from '../../core/calendar/rules';
+import type { Template } from '../../core/semester/timeline';
 
 export const faculties = pgTable('faculties', {
   id: serial('id').primaryKey(),
@@ -189,6 +191,92 @@ export const holidayRuleOverrides = pgTable(
       sql`(${t.startDate} IS NULL) = (${t.endDate} IS NULL) AND (${t.startDate} IS NULL OR ${t.endDate} >= ${t.startDate})`,
     ),
   ],
+);
+
+/** One semester of one series. The timeline is derived from this + holidays, never stored. */
+export const semesters = pgTable(
+  'semesters',
+  {
+    id: serial('id').primaryKey(),
+    seriesId: integer('series_id')
+      .notNull()
+      .references(() => series.id),
+    label: text('label'), // e.g. "2-2"
+    startDate: date('start_date', { mode: 'string' }).notNull(),
+    template: jsonb('template').$type<Template>().notNull(),
+    status: text('status', { enum: ['ACTIVE', 'COMPLETED'] })
+      .notNull()
+      .default('ACTIVE'),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => admins.id),
+    updatedBy: integer('updated_by')
+      .notNull()
+      .references(() => admins.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => [
+    check('semesters_status_check', sql`${t.status} IN ('ACTIVE','COMPLETED')`),
+    check('semesters_label_length', sql`${t.label} IS NULL OR char_length(${t.label}) <= 30`),
+    // At most one ACTIVE semester per series.
+    uniqueIndex('semesters_one_active_per_series')
+      .on(t.seriesId)
+      .where(sql`${t.status} = 'ACTIVE' AND ${t.deletedAt} IS NULL`),
+  ],
+);
+
+export const semesterCheckpoints = pgTable('semester_checkpoints', {
+  id: serial('id').primaryKey(),
+  semesterId: integer('semester_id')
+    .notNull()
+    .references(() => semesters.id),
+  asOfDate: date('as_of_date', { mode: 'string' }).notNull(),
+  phase: text('phase').notNull(),
+  weekIndex: integer('week_index').notNull(),
+  note: text('note'),
+  createdBy: integer('created_by')
+    .notNull()
+    .references(() => admins.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const semesterWeekOverrides = pgTable(
+  'semester_week_overrides',
+  {
+    semesterId: integer('semester_id')
+      .notNull()
+      .references(() => semesters.id),
+    weekStart: date('week_start', { mode: 'string' }).notNull(),
+    mode: text('mode', { enum: ['FORCE_EXTEND', 'NO_EXTEND'] }).notNull(),
+    note: text('note'),
+    updatedBy: integer('updated_by')
+      .notNull()
+      .references(() => admins.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.semesterId, t.weekStart),
+    check('semester_week_overrides_mode_check', sql`${t.mode} IN ('FORCE_EXTEND','NO_EXTEND')`),
+  ],
+);
+
+export const semesterPins = pgTable(
+  'semester_pins',
+  {
+    semesterId: integer('semester_id')
+      .notNull()
+      .references(() => semesters.id),
+    phase: text('phase').notNull(),
+    startDate: date('start_date', { mode: 'string' }).notNull(),
+    note: text('note'),
+    updatedBy: integer('updated_by')
+      .notNull()
+      .references(() => admins.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.semesterId, t.phase)],
 );
 
 export const sessions = pgTable('sessions', {

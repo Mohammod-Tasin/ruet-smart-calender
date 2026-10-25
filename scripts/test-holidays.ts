@@ -1,7 +1,8 @@
 // Live end-to-end check of the admin holiday API. Needs `npm run dev` running.
 //   npm run test:holidays   -> asks for your email + password (hidden)
-// Uses dates in March 2090 and the title prefix below. Everything it creates (including a
-// temporary admin) is hard-deleted at the end, even if a step fails.
+// Uses a 2-week window far in the future that has no holidays at all (one-off or yearly rules,
+// found through the public /api/holidays), and the title prefix below. Everything it creates
+// (including a temporary admin) is hard-deleted at the end, even if a step fails.
 import { hash } from '@node-rs/argon2';
 import { randomBytes } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
@@ -11,8 +12,30 @@ import { askHidden } from './lib/prompt';
 const BASE = process.env.TEST_BASE_URL ?? 'http://localhost:3000';
 const ORIGIN = process.env.APP_ORIGIN;
 const MARK = '[TEST-HOLIDAYS]';
-const MINE = { start: '2090-03-10', end: '2090-03-12' };
-const WINDOW = { from: '2090-03-01', to: '2090-03-31' };
+// Chosen at run time by findFreeWindow(): WINDOW is 14 days, MINE the 3 days inside it, MID the middle one.
+let MINE = { start: '', end: '' };
+let WINDOW = { from: '', to: '' };
+let MID = '';
+
+const addDays = (iso: string, n: number) =>
+  new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+/** First 14-day window from 2090 on with no occurrence at all in /api/holidays. */
+async function findFreeWindow() {
+  for (let i = 0; i < 80; i++) {
+    const from = addDays('2090-01-01', i * 14);
+    const to = addDays(from, 13);
+    const r = await fetch(`${BASE}/api/holidays?from=${from}&to=${to}&t=${Date.now()}`);
+    const j = (await r.json()) as { holidays: unknown[] };
+    if (j.holidays.length === 0) {
+      WINDOW = { from, to };
+      MINE = { start: addDays(from, 2), end: addDays(from, 4) };
+      MID = addDays(from, 3);
+      return true;
+    }
+  }
+  return false;
+}
 
 let failed = 0;
 let skipped = 0;
@@ -109,6 +132,9 @@ async function main() {
   const password = await askHidden('Password: ');
   console.log(`\nTesting ${BASE} (Origin: ${ORIGIN})\n`);
 
+  if (!(await findFreeWindow())) throw new Error('No holiday-free 2-week window found after 2090.');
+  console.log(`Using the empty window ${WINDOW.from} .. ${WINDOW.to}\n`);
+
   const me = new Client();
   const login = await me.login(email, password);
   if (!check('0. log in as you', login.status === 200, `status ${login.status}`)) process.exit(1);
@@ -132,7 +158,7 @@ async function main() {
   });
   if (
     !check(
-      '   test window (March 2090) is empty',
+      `   test window ${WINDOW.from} .. ${WINDOW.to} is empty`,
       empty.status === 200 && empty.json.conflicts.length === 0,
       `status ${empty.status}`,
     )
@@ -208,8 +234,8 @@ async function main() {
     // 5. overlap -> 409
     const overlapBody = {
       title: `${MARK} EEE-23 overlap`,
-      startDate: '2090-03-11',
-      endDate: '2090-03-11',
+      startDate: MID,
+      endDate: MID,
       audience: [{ scopeType: 'SERIES', scopeId: eee23 }],
     };
     const blocked = await other.call('POST', '/api/admin/holidays', overlapBody);
@@ -221,7 +247,7 @@ async function main() {
         c0?.id === mineId &&
         c0.createdBy.name === myName &&
         c0.sharedLabel === 'EEE-23' &&
-        c0.overlap.startDate === '2090-03-11',
+        c0.overlap.startDate === MID,
       `status ${blocked.status}, shared "${c0?.sharedLabel}", createdBy "${c0?.createdBy?.name}"`,
     );
     const afterBlocked = (await publicList()).length;

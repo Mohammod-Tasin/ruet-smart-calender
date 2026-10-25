@@ -336,7 +336,7 @@ HIJRI_BD_DAY_OFFSET=1  # added to the Saudi (umalqura) Hijri date; Bangladesh si
    `holiday_rules` + overrides + versioning + Hijri + MANUAL_YEARLY, one
    `getOffDays()`, seed of the RUET 2026 list, "Yearly holidays" admin page with
    "dates needed" panel, spanning-bar calendar with lane algorithm.
-10. Semester engine (§15): pure core + tables + APIs + audit + impact diff.
+10. ✅ Semester engine (§15): pure core + tables + APIs + audit + impact diff.
 11. Semester UI: Status page, timeline drawer, calendar header line, admin
     semester screens, impact preview in holiday forms, reminders.
 
@@ -380,7 +380,7 @@ days as HIJRI with confirmed 2026 overrides, Hindu/Buddhist/summer days as
 MANUAL_YEARLY with 2026 overrides. Titles are Bengali; every Hindu puja is just
 "সনাতনী ছুটি". Full table: `docs/phase-9-11-spec.md` §7.
 
-## 15. Department semester state (Phases 10–11, not built yet)
+## 15. Department semester state (engine built in Phase 10; UI is Phase 11)
 
 Each **series** has its own semester; the timeline is derived, never stored.
 Default template: CLASS 7 wk (extends), MID_BREAK 1 (no extend), CLASS 6 wk

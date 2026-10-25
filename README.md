@@ -36,17 +36,17 @@ Run `db:setup-role` once after the first migrate (it is safe to repeat; it reset
 
 ## Scripts
 
-| Command                               | What it does                                                     |
-| ------------------------------------- | ---------------------------------------------------------------- |
-| `npm run dev` / `build` / `start`     | Next.js dev server / production build / run the build            |
-| `npm run lint` / `typecheck` / `test` | ESLint / TypeScript / Vitest (CI runs all three + build)         |
-| `npm run format`                      | Prettier                                                         |
-| `npm run db:generate`                 | Generate a SQL migration after editing the Drizzle schema        |
-| `npm run db:migrate`                  | Apply migrations, then re-apply the append-only audit_log revoke |
-| `npm run db:setup-role`               | Create/reset `app_user` and its grants                           |
-| `npm run db:seed`                     | Seed faculties, departments, active series, 2026 yearly holidays |
-| `npm run db:create-admin`             | Create an admin (`-- --deactivate <email>` to deactivate)        |
-| `npm run test:auth` / `test:holidays` | End-to-end checks against a running dev server + database        |
+| Command                                                  | What it does                                                     |
+| -------------------------------------------------------- | ---------------------------------------------------------------- |
+| `npm run dev` / `build` / `start`                        | Next.js dev server / production build / run the build            |
+| `npm run lint` / `typecheck` / `test`                    | ESLint / TypeScript / Vitest (CI runs all three + build)         |
+| `npm run format`                                         | Prettier                                                         |
+| `npm run db:generate`                                    | Generate a SQL migration after editing the Drizzle schema        |
+| `npm run db:migrate`                                     | Apply migrations, then re-apply the append-only audit_log revoke |
+| `npm run db:setup-role`                                  | Create/reset `app_user` and its grants                           |
+| `npm run db:seed`                                        | Seed faculties, departments, active series, 2026 yearly holidays |
+| `npm run db:create-admin`                                | Create an admin (`-- --deactivate <email>` to deactivate)        |
+| `npm run test:auth` / `test:holidays` / `test:semesters` | End-to-end checks against a running dev server + database        |
 
 ## Deploy (Vercel)
 

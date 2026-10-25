@@ -16,7 +16,8 @@
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
     "db:create-admin": "tsx --env-file-if-exists=.env.local scripts/create-admin.ts",
     "test:auth": "tsx --env-file-if-exists=.env.local scripts/test-auth.ts",
-    "test:holidays": "tsx --env-file-if-exists=.env.local scripts/test-holidays.ts"
+    "test:holidays": "tsx --env-file-if-exists=.env.local scripts/test-holidays.ts",
+    "test:semesters": "tsx --env-file-if-exists=.env.local scripts/test-semesters.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
