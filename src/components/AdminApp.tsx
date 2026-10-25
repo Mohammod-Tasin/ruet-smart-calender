@@ -1,7 +1,8 @@
 'use client';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { holidaysByDate, todayInDhaka, shiftMonth } from '@/core/calendar/grid';
+import { todayInDhaka, shiftMonth } from '@/core/calendar/grid';
 import {
   api,
   clearHolidayCache,
@@ -42,7 +43,7 @@ function Admin({ offDays }: { offDays: number[] }) {
   const [range, setRange] = useState<{ start: string; end: string } | null>(null);
   const [pendingStart, setPendingStart] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ target: EditorTarget; key: number } | null>(null);
-  const [historyOf, setHistoryOf] = useState<PublicHoliday | null>(null);
+  const [historyOf, setHistoryOf] = useState<{ id: number; title: string } | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [deleted, setDeleted] = useState<FullHoliday[]>([]);
@@ -51,10 +52,6 @@ function Admin({ offDays }: { offDays: number[] }) {
 
   const { structure } = useStructure();
   const { cells, holidays, failed } = useMonthHolidays(ym, offDays, { bust: true, version });
-  const byDate = useMemo(
-    () => (holidays ? holidaysByDate(cells, holidays) : null),
-    [cells, holidays],
-  );
 
   // Auth gate.
   useEffect(() => {
@@ -99,7 +96,11 @@ function Admin({ offDays }: { offDays: number[] }) {
     return () => window.removeEventListener('pointerup', up);
   }, []);
 
-  const onCell = (date: string, holidayId: number | null) => {
+  const onCell = (date: string, holidayId: number | string | null) => {
+    // Yearly-rule occurrences ("rule:<id>:<year>") are edited on the Yearly holidays page.
+    if (typeof holidayId === 'string') {
+      return router.push(`/admin/yearly?year=${holidayId.split(':')[2]}`);
+    }
     if (holidayId) return setEditor({ target: { kind: 'edit', id: holidayId }, key: Date.now() });
     if (suppressClick.current) return;
     if (pendingStart === null) {
@@ -116,7 +117,7 @@ function Admin({ offDays }: { offDays: number[] }) {
     setPendingStart(null);
   };
 
-  async function remove(h: PublicHoliday) {
+  async function remove(h: PublicHoliday & { id: number }) {
     setBusyId(h.id);
     const r = await api(`/api/admin/holidays/${h.id}`, { method: 'DELETE' });
     setBusyId(null);
@@ -160,6 +161,9 @@ function Admin({ offDays }: { offDays: number[] }) {
     <main className="mx-auto max-w-5xl space-y-4 px-2 py-3 sm:px-4">
       <header className="flex items-center gap-2 px-1">
         <h1 className="mr-auto text-xl font-bold">Admin</h1>
+        <Link href="/admin/yearly" className={small}>
+          Yearly holidays
+        </Link>
         <ThemeToggle />
         <span className="hidden text-sm text-zinc-600 sm:inline dark:text-zinc-400">{me.name}</span>
         <button type="button" className={small} onClick={logout}>
@@ -207,7 +211,7 @@ function Admin({ offDays }: { offDays: number[] }) {
       ) : (
         <MonthGrid
           cells={cells}
-          byDate={byDate}
+          holidays={holidays}
           today={today}
           range={range}
           onCell={onCell}
@@ -232,53 +236,64 @@ function Admin({ offDays }: { offDays: number[] }) {
           <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">None yet.</p>
         ) : (
           <div className="grid gap-2 md:grid-cols-2">
-            {inView.map((h) => (
-              <HolidayCard
-                key={h.id}
-                holiday={h}
-                actions={
-                  confirmId === h.id ? (
-                    <>
-                      <span className="self-center text-sm">Delete this holiday?</span>
-                      <button
-                        type="button"
-                        disabled={busyId === h.id}
-                        className={`${small} border-red-700 bg-red-700 text-white hover:bg-red-800`}
-                        onClick={() => remove(h)}
-                      >
-                        {busyId === h.id ? 'Deleting…' : 'Yes, delete'}
-                      </button>
-                      <button
-                        type="button"
-                        className={small}
-                        disabled={busyId === h.id}
-                        onClick={() => setConfirmId(null)}
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className={small}
-                        onClick={() =>
-                          setEditor({ target: { kind: 'edit', id: h.id }, key: Date.now() })
-                        }
-                      >
-                        Edit
-                      </button>
-                      <button type="button" className={small} onClick={() => setHistoryOf(h)}>
-                        History
-                      </button>
-                      <button type="button" className={small} onClick={() => setConfirmId(h.id)}>
-                        Delete
-                      </button>
-                    </>
-                  )
-                }
-              />
-            ))}
+            {inView.map((h) => {
+              const id = h.id;
+              return (
+                <HolidayCard
+                  key={id}
+                  holiday={h}
+                  actions={
+                    typeof id === 'string' ? (
+                      <Link href={`/admin/yearly?year=${h.year}`} className={small}>
+                        Edit on Yearly holidays page
+                      </Link>
+                    ) : confirmId === id ? (
+                      <>
+                        <span className="self-center text-sm">Delete this holiday?</span>
+                        <button
+                          type="button"
+                          disabled={busyId === id}
+                          className={`${small} border-red-700 bg-red-700 text-white hover:bg-red-800`}
+                          onClick={() => remove({ ...h, id })}
+                        >
+                          {busyId === id ? 'Deleting…' : 'Yes, delete'}
+                        </button>
+                        <button
+                          type="button"
+                          className={small}
+                          disabled={busyId === id}
+                          onClick={() => setConfirmId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className={small}
+                          onClick={() =>
+                            setEditor({ target: { kind: 'edit', id }, key: Date.now() })
+                          }
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className={small}
+                          onClick={() => setHistoryOf({ id, title: h.title })}
+                        >
+                          History
+                        </button>
+                        <button type="button" className={small} onClick={() => setConfirmId(id)}>
+                          Delete
+                        </button>
+                      </>
+                    )
+                  }
+                />
+              );
+            })}
           </div>
         )}
       </section>
@@ -305,7 +320,11 @@ function Admin({ offDays }: { offDays: number[] }) {
                     >
                       {busyId === h.id ? 'Restoring…' : 'Restore'}
                     </button>
-                    <button type="button" className={small} onClick={() => setHistoryOf(h)}>
+                    <button
+                      type="button"
+                      className={small}
+                      onClick={() => setHistoryOf({ id: h.id, title: h.title })}
+                    >
                       History
                     </button>
                   </>
@@ -335,7 +354,7 @@ function Admin({ offDays }: { offDays: number[] }) {
   );
 }
 
-const FIELDS = ['title', 'note', 'startDate', 'endDate'] as const;
+const FIELDS = ['title', 'note', 'startDate', 'endDate', 'classesOnly'] as const;
 
 function describe(e: AuditEntry): string {
   if (e.action !== 'UPDATE')
@@ -343,13 +362,25 @@ function describe(e: AuditEntry): string {
   const b = e.before ?? {};
   const a = e.after ?? {};
   const changed: string[] = FIELDS.filter((f) => b[f] !== a[f]).map((f) =>
-    f === 'startDate' ? 'from date' : f === 'endDate' ? 'to date' : f,
+    f === 'startDate'
+      ? 'from date'
+      : f === 'endDate'
+        ? 'to date'
+        : f === 'classesOnly'
+          ? 'classes-only'
+          : f,
   );
   if (JSON.stringify(b.audience) !== JSON.stringify(a.audience)) changed.push('audience');
   return `Changed ${changed.join(', ') || 'details'}`;
 }
 
-function HistorySheet({ holiday, onClose }: { holiday: PublicHoliday; onClose: () => void }) {
+function HistorySheet({
+  holiday,
+  onClose,
+}: {
+  holiday: { id: number; title: string };
+  onClose: () => void;
+}) {
   const [res, setRes] = useState<{ entries?: AuditEntry[]; error?: string } | null>(null);
   useEffect(() => {
     api<{ entries: AuditEntry[] }>(`/api/admin/audit?holidayId=${holiday.id}`).then((r) =>

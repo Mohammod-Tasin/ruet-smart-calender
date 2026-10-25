@@ -3,6 +3,7 @@ import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql, type SQL } fro
 import { alias } from 'drizzle-orm/pg-core';
 import { compressAudience } from '@/core/calendar/compress';
 import { findOverlaps, type Overlap, type OverlapInput } from '@/core/calendar/overlap';
+import type { Category } from '@/core/calendar/rules';
 import type { AudienceEntry, Structure } from '@/core/calendar/types';
 import type {
   CheckOverlapInput,
@@ -11,21 +12,22 @@ import type {
 } from '@/core/validation/holiday';
 import { getDb, type Executor, type Tx } from '@/server/db/client';
 import { getStructure } from '@/server/db/queries';
-import { admins, auditLog, holidayAudience, holidays, series } from '@/server/db/schema';
+import { admins, auditLog, holidayAudience, holidays } from '@/server/db/schema';
+import { ruleOccurrences } from './rules';
+import { audienceProblem, fail, lockWrites, ok, type Person, type Result } from './shared';
+
+export type { Person, Result, ServiceError } from './shared';
 
 // ---------------------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------------------
 
-export interface Person {
-  id: number;
-  name: string;
-}
-
 export interface HolidayRecord {
   id: number;
   title: string;
   note: string | null;
+  category: Category;
+  classesOnly: boolean;
   startDate: string;
   endDate: string;
   audience: AudienceEntry[];
@@ -41,7 +43,8 @@ export interface HolidayView extends HolidayRecord {
 }
 
 export interface Conflict {
-  id: number;
+  id: number | string; // string = a yearly-rule occurrence, "rule:<id>:<year>"
+  source: 'ONE_OFF' | 'RULE';
   title: string;
   note: string | null;
   startDate: string;
@@ -55,39 +58,6 @@ export interface Conflict {
   sharedLabel: string;
 }
 
-export interface ServiceError {
-  ok: false;
-  code: 'NOT_FOUND' | 'UNPROCESSABLE' | 'BAD_REQUEST' | 'NOT_DELETED' | 'OVERLAP';
-  message: string;
-  conflicts?: Conflict[];
-}
-export type Result<T> = { ok: true; value: T } | ServiceError;
-
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-const fail = (
-  code: ServiceError['code'],
-  message: string,
-  conflicts?: Conflict[],
-): ServiceError => ({
-  ok: false,
-  code,
-  message,
-  conflicts,
-});
-
-// ---------------------------------------------------------------------------------------
-// Serialising writes
-// ---------------------------------------------------------------------------------------
-
-// One fixed app-wide key. Every holiday write takes this lock first, inside its own
-// transaction and BEFORE the overlap check; it is released automatically at commit or
-// rollback. So "check overlaps, then write" runs one admin at a time and two admins can
-// never both pass the check and then both save clashing holidays. Writes are rare, so the
-// queueing costs nothing. This also stops an edit from racing with a delete or restore.
-const WRITE_LOCK_KEY = 5_171_001;
-const lockWrites = (tx: Tx) =>
-  tx.execute(sql`select pg_advisory_xact_lock(${WRITE_LOCK_KEY}::bigint)`);
-
 // ---------------------------------------------------------------------------------------
 // Reading
 // ---------------------------------------------------------------------------------------
@@ -100,6 +70,8 @@ async function fetchRecords(x: Executor, where: SQL | undefined): Promise<Holida
       id: holidays.id,
       title: holidays.title,
       note: holidays.note,
+      category: holidays.category,
+      classesOnly: holidays.classesOnly,
       startDate: holidays.startDate,
       endDate: holidays.endDate,
       createdById: holidays.createdBy,
@@ -137,6 +109,8 @@ async function fetchRecords(x: Executor, where: SQL | undefined): Promise<Holida
     id: r.id,
     title: r.title,
     note: r.note,
+    category: r.category as Category,
+    classesOnly: r.classesOnly,
     startDate: r.startDate,
     endDate: r.endDate,
     audience: byHoliday.get(r.id) ?? [],
@@ -161,10 +135,15 @@ const view = (r: HolidayRecord, structure: Structure): HolidayView => ({
 // Overlaps and validation against the database
 // ---------------------------------------------------------------------------------------
 
-function toConflict(o: Overlap<HolidayRecord>, structure: Structure): Conflict {
+type Clashable = Omit<Conflict, 'label' | 'overlap' | 'sharedLabel'> & {
+  audience: AudienceEntry[];
+};
+
+function toConflict(o: Overlap<Clashable>, structure: Structure): Conflict {
   const h = o.holiday;
   return {
     id: h.id,
+    source: h.source,
     title: h.title,
     note: h.note,
     startDate: h.startDate,
@@ -186,46 +165,29 @@ async function conflictsFor(
   excludeId?: number,
 ): Promise<Conflict[]> {
   // Only live holidays whose dates touch the candidate can clash; the core does the rest.
-  const nearby = await fetchRecords(
-    x,
-    and(
-      isNull(holidays.deletedAt),
-      lte(holidays.startDate, candidate.endDate),
-      gte(holidays.endDate, candidate.startDate),
+  // Yearly-rule occurrences count too (same sources as getOffDays); they have no separate
+  // author, so the editor of the rule / override stands in for createdBy.
+  const [oneOffs, ruleOccs] = await Promise.all([
+    fetchRecords(
+      x,
+      and(
+        isNull(holidays.deletedAt),
+        lte(holidays.startDate, candidate.endDate),
+        gte(holidays.endDate, candidate.startDate),
+      ),
     ),
-  );
+    ruleOccurrences(x, { from: candidate.startDate, to: candidate.endDate }),
+  ]);
+  const nearby: Clashable[] = [
+    ...oneOffs.map((h) => ({ ...h, source: 'ONE_OFF' as const })),
+    ...ruleOccs.map((o) => ({
+      ...o,
+      source: 'RULE' as const,
+      createdBy: o.updatedBy,
+      createdAt: o.updatedAt,
+    })),
+  ];
   return findOverlaps(candidate, nearby, structure, excludeId).map((o) => toConflict(o, structure));
-}
-
-/** Returns a message for the first audience id that does not exist (or is not active). */
-async function audienceProblem(
-  x: Executor,
-  structure: Structure,
-  audience: AudienceEntry[],
-): Promise<string | null> {
-  const facultyIds = new Set(structure.faculties.map((f) => f.id));
-  const departmentIds = new Set(structure.departments.map((d) => d.id));
-  const seriesIds = audience.filter((a) => a.scopeType === 'SERIES').map((a) => a.scopeId!);
-  const seriesRows = seriesIds.length
-    ? await x
-        .select({ id: series.id, isActive: series.isActive })
-        .from(series)
-        .where(inArray(series.id, seriesIds))
-    : [];
-  const seriesState = new Map(seriesRows.map((s) => [s.id, s.isActive]));
-
-  for (const a of audience) {
-    const id = a.scopeId;
-    if (a.scopeType === 'FACULTY' && !facultyIds.has(id!)) return `Faculty ${id} does not exist.`;
-    if (a.scopeType === 'DEPARTMENT' && !departmentIds.has(id!)) {
-      return `Department ${id} does not exist.`;
-    }
-    if (a.scopeType === 'SERIES') {
-      if (!seriesState.has(id!)) return `Series ${id} does not exist.`;
-      if (!seriesState.get(id!)) return `Series ${id} is not active.`;
-    }
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -235,6 +197,8 @@ async function audienceProblem(
 const snapshot = (h: {
   title: string;
   note: string | null;
+  category: string;
+  classesOnly: boolean;
   startDate: string;
   endDate: string;
   audience: AudienceEntry[];
@@ -242,6 +206,8 @@ const snapshot = (h: {
 }) => ({
   title: h.title,
   note: h.note,
+  category: h.category,
+  classesOnly: h.classesOnly,
   startDate: h.startDate,
   endDate: h.endDate,
   audience: h.audience,
@@ -271,11 +237,15 @@ export async function createHoliday(
     }
 
     const note = input.note ?? null;
+    const category = input.category ?? 'HOLIDAY';
+    const classesOnly = input.classesOnly ?? false;
     const [row] = await tx
       .insert(holidays)
       .values({
         title: input.title,
         note,
+        category,
+        classesOnly,
         startDate: input.startDate,
         endDate: input.endDate,
         createdBy: adminId,
@@ -285,11 +255,12 @@ export async function createHoliday(
     const id = row!.id;
     await insertAudience(tx, id, input.audience);
 
-    const after = snapshot({ ...input, note, deletedAt: null });
+    const after = snapshot({ ...input, note, category, classesOnly, deletedAt: null });
     await tx.insert(auditLog).values({
       adminId,
       action: 'CREATE',
       holidayId: id,
+      entityId: id,
       before: null,
       after: withConfirmed(after, conflicts),
     });
@@ -311,6 +282,8 @@ export async function updateHoliday(
     const merged = {
       title: patch.title ?? existing.title,
       note: patch.note !== undefined ? patch.note : existing.note,
+      category: patch.category ?? existing.category,
+      classesOnly: patch.classesOnly ?? existing.classesOnly,
       startDate: patch.startDate ?? existing.startDate,
       endDate: patch.endDate ?? existing.endDate,
       audience: patch.audience ?? existing.audience,
@@ -338,6 +311,8 @@ export async function updateHoliday(
       .set({
         title: merged.title,
         note: merged.note,
+        category: merged.category,
+        classesOnly: merged.classesOnly,
         startDate: merged.startDate,
         endDate: merged.endDate,
         updatedBy: adminId,
@@ -353,6 +328,7 @@ export async function updateHoliday(
       adminId,
       action: 'UPDATE',
       holidayId: id,
+      entityId: id,
       before: snapshot(existing),
       after: withConfirmed(snapshot({ ...merged, deletedAt: null }), conflicts),
     });
@@ -379,6 +355,7 @@ export async function deleteHoliday(
       adminId,
       action: 'DELETE',
       holidayId: id,
+      entityId: id,
       before: snapshot(existing),
       after: snapshot(after),
     });
@@ -407,6 +384,7 @@ export async function restoreHoliday(
       adminId,
       action: 'RESTORE',
       holidayId: id,
+      entityId: id,
       before: snapshot(existing),
       after: snapshot(after),
     });

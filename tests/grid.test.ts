@@ -29,7 +29,7 @@ describe('buildMonthGrid', () => {
     expect(cells.filter((c) => c.inMonth)).toHaveLength(29);
     expect(cells.find((c) => c.date === '2028-02-29')!.inMonth).toBe(true);
     expect(cells.filter((c) => c.isOff).map((c) => c.weekday)).toSatisfy((w: number[]) =>
-      w.every((d) => d === 5 || d === 6),
+      w.every((d) => d === 4 || d === 5),
     );
     expect(cells.filter((c) => c.isOff)).toHaveLength(12);
   });
@@ -58,10 +58,10 @@ describe('month keys', () => {
 });
 
 test('parseOffDays', () => {
-  expect(parseOffDays('FRI,SAT')).toEqual([5, 6]);
+  expect(parseOffDays('THU,FRI')).toEqual([4, 5]);
   expect(parseOffDays(' sun , mon ')).toEqual([0, 1]);
-  expect(parseOffDays('nonsense')).toEqual([5, 6]);
-  expect(parseOffDays(undefined)).toEqual([5, 6]);
+  expect(parseOffDays('nonsense')).toEqual([4, 5]);
+  expect(parseOffDays(undefined)).toEqual([4, 5]);
 });
 
 test('todayInDhaka uses Dhaka time, not UTC', () => {

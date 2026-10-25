@@ -44,20 +44,20 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
     seriesRow ? d.id === seriesRow.departmentId : d.code === deptCode,
   );
 
-  const byDate = useMemo(() => {
+  const visible = useMemo(() => {
     if (!holidays || !structure) return null;
-    const visible = holidays.filter((h) =>
+    return holidays.filter((h) =>
       seriesRow
         ? appliesToSeries(h.audience, structure, seriesRow.id)
         : dept
           ? appliesToDepartment(h.audience, structure, dept.id)
           : true,
     );
-    return holidaysByDate(cells, visible);
-  }, [holidays, structure, cells, seriesRow, dept]);
+  }, [holidays, structure, seriesRow, dept]);
 
   const goto = (key: string) => setParams({ m: key });
-  const dayHolidays = openDate ? (byDate?.get(openDate) ?? []) : [];
+  const dayHolidays =
+    openDate && visible ? (holidaysByDate(cells, visible).get(openDate) ?? []) : [];
   const dateInMonth = (d: string) => d.slice(0, 7);
 
   return (
@@ -142,11 +142,12 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
           </button>
         </div>
       ) : (
-        <MonthGrid cells={cells} byDate={byDate} today={today} onCell={(d) => setOpenDate(d)} />
+        <MonthGrid cells={cells} holidays={visible} today={today} onCell={(d) => setOpenDate(d)} />
       )}
 
       <p className="px-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Shaded days are weekly off days. Tap a day for details.
+        Shaded days are weekly off days (Thu, Fri). Striped bars are tentative: they depend on moon
+        sighting. Tap a day for details.
       </p>
 
       {openDate && (

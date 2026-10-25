@@ -24,24 +24,32 @@ export interface HolidayRow {
   id: number;
   title: string;
   note: string | null;
+  category: string;
+  classesOnly: boolean;
   startDate: string;
   endDate: string;
-  updatedBy: { name: string };
+  updatedBy: { id: number; name: string };
   updatedAt: string;
   audience: AudienceEntry[];
 }
 
-/** Holidays overlapping [from, to], not soft-deleted, each with its raw audience. */
-export async function getHolidaysInRange(from: string, to: string): Promise<HolidayRow[]> {
-  const db = getDb();
+/** One-off holidays overlapping [from, to], not soft-deleted, each with its raw audience. */
+export async function getHolidaysInRange(
+  from: string,
+  to: string,
+  db: Executor = getDb(),
+): Promise<HolidayRow[]> {
   const updater = alias(admins, 'updater');
   const rows = await db
     .select({
       id: holidays.id,
       title: holidays.title,
       note: holidays.note,
+      category: holidays.category,
+      classesOnly: holidays.classesOnly,
       startDate: holidays.startDate,
       endDate: holidays.endDate,
+      updatedById: holidays.updatedBy,
       updatedByName: updater.name,
       updatedAt: holidays.updatedAt,
     })
@@ -68,9 +76,9 @@ export async function getHolidaysInRange(from: string, to: string): Promise<Holi
     list.push({ scopeType: a.scopeType, scopeId: a.scopeId });
     byHoliday.set(a.holidayId, list);
   }
-  return rows.map(({ updatedByName, updatedAt, ...r }) => ({
+  return rows.map(({ updatedById, updatedByName, updatedAt, ...r }) => ({
     ...r,
-    updatedBy: { name: updatedByName },
+    updatedBy: { id: updatedById, name: updatedByName },
     updatedAt: updatedAt.toISOString(),
     audience: byHoliday.get(r.id) ?? [],
   }));

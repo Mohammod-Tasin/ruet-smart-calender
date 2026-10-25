@@ -1,3 +1,4 @@
+import type { Category } from '@/core/calendar/rules';
 import type { AudienceEntry, DepartmentInfo, FacultyInfo, Structure } from '@/core/calendar/types';
 
 export interface Person {
@@ -5,21 +6,28 @@ export interface Person {
   name: string;
 }
 
-/** Item of GET /api/holidays. */
+/** Item of GET /api/holidays: a one-off holiday or one occurrence of a yearly rule. */
 export interface PublicHoliday {
-  id: number;
+  id: number | string; // "rule:<ruleId>:<year>" for yearly rules
   title: string;
   note: string | null;
+  category: Category;
+  classesOnly: boolean;
   startDate: string;
   endDate: string;
   audience: AudienceEntry[];
   label: string;
+  source: 'ONE_OFF' | 'RULE';
+  tentative: boolean;
+  ruleId?: number;
+  year?: number;
   updatedBy: { name: string };
   updatedAt: string;
 }
 
-/** Admin view of one holiday. */
-export interface FullHoliday extends Omit<PublicHoliday, 'updatedBy'> {
+/** Admin view of one one-off holiday. */
+export interface FullHoliday extends Omit<PublicHoliday, 'updatedBy' | 'id'> {
+  id: number;
   createdBy: Person;
   createdAt: string;
   updatedBy: Person;
@@ -27,7 +35,8 @@ export interface FullHoliday extends Omit<PublicHoliday, 'updatedBy'> {
 }
 
 export interface Conflict {
-  id: number;
+  id: number | string;
+  source: 'ONE_OFF' | 'RULE';
   title: string;
   note: string | null;
   startDate: string;

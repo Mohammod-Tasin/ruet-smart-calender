@@ -15,6 +15,13 @@
       "when": 1792350842250,
       "tag": "0001_silly_swordsman",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792909966649,
+      "tag": "0002_dear_justin_hammer",
+      "breakpoints": true
     }
   ]
 }

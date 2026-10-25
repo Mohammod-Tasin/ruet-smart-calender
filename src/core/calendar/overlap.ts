@@ -21,7 +21,7 @@ export interface Overlap<T> {
  * Pass `excludeId` when editing, so a holiday never clashes with itself.
  * Soft-deleted holidays must be filtered out by the caller.
  */
-export function findOverlaps<T extends OverlapInput & { id: number }>(
+export function findOverlaps<T extends OverlapInput & { id: number | string }>(
   candidate: OverlapInput,
   existing: T[],
   structure: Structure,
@@ -50,6 +50,8 @@ export function findOverlaps<T extends OverlapInput & { id: number }>(
     });
   }
   return result.sort(
-    (a, b) => a.holiday.startDate.localeCompare(b.holiday.startDate) || a.holiday.id - b.holiday.id,
+    (a, b) =>
+      a.holiday.startDate.localeCompare(b.holiday.startDate) ||
+      String(a.holiday.id).localeCompare(String(b.holiday.id), undefined, { numeric: true }),
   );
 }

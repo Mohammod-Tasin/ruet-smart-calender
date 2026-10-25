@@ -6,17 +6,18 @@ export const labelColor = (label: string) =>
     ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200'
     : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200';
 
+const badge =
+  'rounded px-1.5 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200';
+
 /** Title, audience, dates, note and "set by". `actions` is the admin's button row. */
 export function HolidayCard({
   holiday: h,
   actions,
 }: {
-  holiday: Pick<
-    PublicHoliday,
-    'title' | 'label' | 'startDate' | 'endDate' | 'note' | 'updatedAt'
-  > & {
-    updatedBy: { name: string };
-  };
+  holiday: Pick<PublicHoliday, 'title' | 'label' | 'startDate' | 'endDate' | 'note' | 'updatedAt'> &
+    Partial<Pick<PublicHoliday, 'classesOnly' | 'tentative' | 'source'>> & {
+      updatedBy: { name: string };
+    };
   actions?: React.ReactNode;
 }) {
   return (
@@ -29,6 +30,13 @@ export function HolidayCard({
         <span className="text-zinc-600 dark:text-zinc-400">
           {dateRange(h.startDate, h.endDate)}
         </span>
+        {h.classesOnly && <span className={badge}>শুধু ক্লাস বন্ধ</span>}
+        {h.tentative && (
+          <span className="rounded border border-dashed border-red-500 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
+            সম্ভাব্য / Tentative
+          </span>
+        )}
+        {h.source === 'RULE' && <span className={badge}>Yearly</span>}
       </p>
       {h.note && <p className="mt-2 text-sm whitespace-pre-line">{h.note}</p>}
       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">

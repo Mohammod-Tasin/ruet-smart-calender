@@ -14,6 +14,7 @@ export type EditorTarget =
 interface Initial {
   title: string;
   note: string;
+  classesOnly: boolean;
   start: string;
   end: string;
   selected: Set<number>;
@@ -54,7 +55,14 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
     body = (
       <HolidayForm
         {...rest}
-        initial={{ title: '', note: '', start: target.start, end: target.end, selected: new Set() }}
+        initial={{
+          title: '',
+          note: '',
+          classesOnly: false,
+          start: target.start,
+          end: target.end,
+          selected: new Set(),
+        }}
       />
     );
   } else if (loaded?.holiday) {
@@ -65,6 +73,7 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
         initial={{
           title: h.title,
           note: h.note ?? '',
+          classesOnly: h.classesOnly,
           start: h.startDate,
           end: h.endDate,
           selected: coveredSeriesIds(h.audience, rest.structure),
@@ -99,6 +108,7 @@ function HolidayForm({
 }: FormProps & { initial: Initial }) {
   const [title, setTitle] = useState(initial.title);
   const [note, setNote] = useState(initial.note);
+  const [classesOnly, setClassesOnly] = useState(initial.classesOnly);
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
   const [selected, setSelected] = useState(initial.selected);
@@ -152,13 +162,22 @@ function HolidayForm({
     if (!editing) {
       request = api('/api/admin/holidays', {
         method: 'POST',
-        body: { title, note, startDate: start, endDate: end, audience, confirmOverlap },
+        body: {
+          title,
+          note,
+          classesOnly,
+          startDate: start,
+          endDate: end,
+          audience,
+          confirmOverlap,
+        },
       });
     } else {
       // Send only what changed, so an unchanged audience/date never re-triggers the overlap rule.
       const patch: Record<string, unknown> = {};
       if (title !== initial.title) patch.title = title;
       if (note !== initial.note) patch.note = note;
+      if (classesOnly !== initial.classesOnly) patch.classesOnly = classesOnly;
       if (start !== initial.start) patch.startDate = start;
       if (end !== initial.end) patch.endDate = end;
       if (!sameSet(selected, initial.selected)) patch.audience = audience;
@@ -207,6 +226,15 @@ function HolidayForm({
           onChange={(e) => setNote(e.target.value)}
         />
       </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-indigo-600"
+          checked={classesOnly}
+          onChange={(e) => setClassesOnly(e.target.checked)}
+        />
+        শুধু ক্লাস বন্ধ <span className="text-zinc-500">(classes closed, offices open)</span>
+      </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm font-medium">
           From
@@ -241,7 +269,11 @@ function HolidayForm({
               ⚠ Overlaps {shown.length === 1 ? 'another holiday' : `${shown.length} other holidays`}
             </h3>
             {shown.map((c) => (
-              <ConflictCard key={c.id} c={c} onEdit={() => onEditExisting(c.id)} />
+              <ConflictCard
+                key={c.id}
+                c={c}
+                onEdit={() => typeof c.id === 'number' && onEditExisting(c.id)}
+              />
             ))}
           </section>
         )}
@@ -288,13 +320,19 @@ function ConflictCard({ c, onEdit }: { c: Conflict; onEdit: () => void }) {
       <p className="text-xs text-zinc-500">
         Set by {c.updatedBy.name} · {stamp(c.updatedAt)}
       </p>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="mt-1 rounded border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-700"
-      >
-        Edit existing
-      </button>
+      {c.source === 'RULE' ? (
+        <p className="mt-1 text-xs text-zinc-500">
+          Yearly holiday: change it on the Yearly holidays page.
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="mt-1 rounded border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-700"
+        >
+          Edit existing
+        </button>
+      )}
     </article>
   );
 }

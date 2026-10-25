@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CATEGORIES } from '@/core/calendar/rules';
 import type { AudienceEntry } from '@/core/calendar/types';
 import { isRealDate } from './holidays-query';
 
@@ -27,7 +28,7 @@ const audienceEntry = z
   })
   .transform((e): AudienceEntry => ({ scopeType: e.scopeType, scopeId: e.scopeId ?? null }));
 
-const audience = z
+export const audience = z
   .array(audienceEntry)
   .min(1, 'audience must not be empty')
   .max(300)
@@ -54,9 +55,13 @@ const orderCheck = (v: { startDate?: string; endDate?: string }, ctx: z.Refineme
   }
 };
 
+const category = z.enum(CATEGORIES);
+
 const base = z.object({
   title,
   note: note.optional(),
+  category: category.optional(),
+  classesOnly: z.boolean().optional(),
   startDate: date,
   endDate: date,
   audience,
@@ -77,11 +82,13 @@ export const patchHolidaySchema = z
     startDate: date.optional(),
     endDate: date.optional(),
     audience: audience.optional(),
+    category: category.optional(),
+    classesOnly: z.boolean().optional(),
     confirmOverlap,
   })
   .superRefine((v, ctx) => {
     orderCheck(v, ctx);
-    const fields = [v.title, v.note, v.startDate, v.endDate, v.audience];
+    const fields = [v.title, v.note, v.startDate, v.endDate, v.audience, v.category, v.classesOnly];
     if (fields.every((x) => x === undefined)) {
       ctx.addIssue({ code: 'custom', message: 'nothing to update' });
     }

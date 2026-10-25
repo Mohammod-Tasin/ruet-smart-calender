@@ -38,7 +38,7 @@ University
 - A series is identified by `intake_year` and never renamed. "23 series"
   stays 23 forever. Only `is_active` changes.
 - Dates are NOT stored. The month grid (6 weeks x 7 days = 42 cells, week
-  starts Sunday) is computed on the frontend. Only holidays are stored.
+  starts Saturday) is computed on the frontend. Only holidays are stored.
 
 ## 3. Architecture
 
@@ -181,7 +181,8 @@ Rules:
   JS `Date` + time zones on the server. Business time zone is Asia/Dhaka.
 - Deletes are soft (`deleted_at`). Every write also writes `audit_log`
   in the **same transaction**.
-- Weekly off days (Fri, Sat) are a config value, not rows.
+- Weekly off days (Thu, Fri) are a config value, not rows. The working week is
+  Saturday to Wednesday (5 days) and the month grid starts on Saturday.
 
 ## 5. Authorization and overlap warnings
 
@@ -297,7 +298,8 @@ or stack traces to clients; log them server-side.
 DATABASE_URL_OWNER=  # neondb_owner pooled string from Neon Console. Local/CI only, NOT on Vercel
 DATABASE_URL=        # app_user pooled string, printed by `npm run db:setup-role`
 APP_ORIGIN=          # http://localhost:3000 locally, https://<app>.vercel.app in prod
-WEEKLY_OFF_DAYS=FRI,SAT
+WEEKLY_OFF_DAYS=THU,FRI
+HIJRI_BD_DAY_OFFSET=1  # added to the Saudi (umalqura) Hijri date; Bangladesh sights the moon ~1 day later
 ```
 
 ## 10. Working rules for Claude Code
@@ -322,14 +324,73 @@ WEEKLY_OFF_DAYS=FRI,SAT
    create-admin script.
 3. ✅ Public API: `/api/structure`, `/api/holidays` + compression (with tests).
 4. ✅ Auth: login/logout/me, sessions, rate limits, origin check, session guard.
-5. Drop admin roles (migration), add `note` + `updated_by`, admin holiday
+5. ✅ Drop admin roles (migration), add `note` + `updated_by`, admin holiday
    CRUD + restore + overlap detection/409 + check-overlap endpoint + audit log
    (with tests).
-6. Public month view UI (grid, chips, "+N more", filters, mobile, dark mode).
-7. Admin UI: login, range select across months, audience picker, note field,
+6. ✅ Public month view UI (grid, filters, mobile, dark mode).
+7. ✅ Admin UI: login, range select across months, audience picker, note field,
    live overlap warning with "edit existing / save anyway / cancel",
    edit/delete/restore, "set by X on date" on every holiday.
-8. Deploy to Vercel, env vars, nightly backup workflow (pg_dump artifact).
+8. ✅ Deploy to Vercel, env vars, nightly backup workflow (pg_dump artifact).
+9. Yearly holidays: §0 corrections, categories/colours + `classes_only`,
+   `holiday_rules` + overrides + versioning + Hijri + MANUAL_YEARLY, one
+   `getOffDays()`, seed of the RUET 2026 list, "Yearly holidays" admin page with
+   "dates needed" panel, spanning-bar calendar with lane algorithm.
+10. Semester engine (§15): pure core + tables + APIs + audit + impact diff.
+11. Semester UI: Status page, timeline drawer, calendar header line, admin
+    semester screens, impact preview in holiday forms, reminders.
+
+Full reference for 9–11: `docs/phase-9-11-spec.md`.
+
+## 13. Holiday categories, rules and sources (Phase 9)
+
+- `holidays` and `holiday_rules` have `classes_only` (RUET "শুধুমাত্র ক্লাস বন্ধ"):
+  counts as an off day everywhere; the day sheet shows a "শুধু ক্লাস বন্ধ" badge.
+  `holidays.category` (default `HOLIDAY`, red). Category → colour lives in one map
+  (`src/lib/categories.ts`); adding a category is a one-line change.
+- Every consumer (public calendar, admin calendar, overlap check, semester engine)
+  reads holidays through ONE function: `getOffDays(range, audienceFilter?)`, which
+  merges (1) one-off `holidays`, (2) `holiday_rules` expanded on the fly (nothing
+  pre-generated), (3) `holiday_rule_overrides`. Occurrence ids for rules are
+  `rule:<ruleId>:<year>`. Occurrence: title, category, classesOnly, startDate,
+  endDate, audience, label, source (`ONE_OFF` | `RULE`), tentative, ruleId?, year?.
+- `holiday_rules`: kind `GREGORIAN_FIXED {month,day,lengthDays}`; `HIJRI
+  {startHijri,endHijri}` (each `{month,day,offsetDays}`) or `{type:'LAST_WEEKDAY',
+  hijriMonth, weekday}`; `MANUAL_YEARLY {defaultLengthDays}`. Hijri uses
+  `Intl` `islamic-umalqura` (no library) + `HIJRI_BD_DAY_OFFSET`; Hijri
+  occurrences are **tentative** until an override with `confirmed=true` exists.
+  MANUAL_YEARLY shows nothing for a year without an override; the admin page lists
+  those under "তারিখ দিতে হবে / Dates needed".
+- Rule versioning: edit "from year Y" = old rule `effective_to_year = Y-1` + new
+  rule `effective_from_year = Y` (in place if Y ≤ old from-year; overrides for
+  years ≥ Y move to the new rule). End "from year Y" = `effective_to_year = Y-1`
+  (soft-delete only if Y ≤ from-year). Past years never change. All audited
+  (`audit_log.entity_type` = `RULE` / `RULE_OVERRIDE`, `holiday_id` nullable).
+- `holiday_rule_overrides` (one year): move dates, skip, or confirm. Admin
+  one-click for HIJRI: −1 day, +1 day, Confirm.
+- Calendar shows multi-day holidays as spanning bars split at week rows, lanes from
+  the pure `src/core/calendar/lanes.ts`; max lanes desktop 3, mobile 2, then
+  "+N more". Day cells contain ONLY holidays.
+
+## 14. Seed: RUET 2026 yearly holidays
+
+`db:seed` also seeds the verified RUET 2026 list (all audience `ALL`) as rules
+(only when `holiday_rules` is empty): fixed-date days as GREGORIAN_FIXED, Islamic
+days as HIJRI with confirmed 2026 overrides, Hindu/Buddhist/summer days as
+MANUAL_YEARLY with 2026 overrides. Titles are Bengali; every Hindu puja is just
+"সনাতনী ছুটি". Full table: `docs/phase-9-11-spec.md` §7.
+
+## 15. Department semester state (Phases 10–11, not built yet)
+
+Each **series** has its own semester; the timeline is derived, never stored.
+Default template: CLASS 7 wk (extends), MID_BREAK 1 (no extend), CLASS 6 wk
+(extends), VIVA 1 (extends), FINALS 4 (extends). A week where all 5 working days
+(Sat–Wed) are off for that series is skipped and shifts the rest; partial weeks,
+holidays split across two weeks, and full weeks in MID_BREAK never shift (admin can
+force). Manual corrections: checkpoints, week overrides (FORCE_EXTEND / NO_EXTEND),
+template override, pins. Pure engine in `src/core/semester/timeline.ts`; state is
+shown on a Status page and timeline drawer, **never inside calendar day cells**.
+Details and API list: `docs/phase-9-11-spec.md` §4.
 
 ## 12. Seed data
 

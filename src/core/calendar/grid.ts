@@ -13,20 +13,23 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const toIso = (t: Date) =>
   `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
 
-/** "FRI,SAT" -> [5, 6]. Falls back to Fri/Sat when empty or unreadable. */
+/** Weekly off days: Thursday and Friday. Working week is Saturday to Wednesday. */
+export const DEFAULT_OFF_DAYS = [4, 5];
+
+/** "THU,FRI" -> [4, 5]. Falls back to Thu/Fri when empty or unreadable. */
 export function parseOffDays(value: string | undefined): number[] {
   const days = (value ?? '')
     .split(',')
     .map((s) => DAY_CODES.indexOf(s.trim().toUpperCase()))
     .filter((i) => i >= 0);
-  return days.length > 0 ? days : [5, 6];
+  return days.length > 0 ? days : DEFAULT_OFF_DAYS;
 }
 
 /** 6 weeks x 7 days = 42 cells, week starts Saturday. `month` is 1-12. UTC maths: no time zones. */
 export function buildMonthGrid(
   year: number,
   month: number,
-  offDays: number[] = [5, 6],
+  offDays: number[] = DEFAULT_OFF_DAYS,
 ): GridCell[] {
   const first = Date.UTC(year, month - 1, 1);
   const start = first - ((new Date(first).getUTCDay() + 1) % 7) * DAY_MS; // back to the Saturday

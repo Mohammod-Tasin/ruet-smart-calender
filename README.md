@@ -23,12 +23,13 @@ npm run dev                     # http://localhost:3000
 
 `.env.local`:
 
-| Variable             | Value                                                                            |
-| -------------------- | -------------------------------------------------------------------------------- |
-| `DATABASE_URL_OWNER` | Pooled connection string of `neondb_owner` from the Neon Console. Local/CI only. |
-| `DATABASE_URL`       | The `app_user` pooled string printed by `db:setup-role`.                         |
-| `APP_ORIGIN`         | `http://localhost:3000` locally; the production URL on Vercel.                   |
-| `WEEKLY_OFF_DAYS`    | `FRI,SAT`                                                                        |
+| Variable              | Value                                                                            |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `DATABASE_URL_OWNER`  | Pooled connection string of `neondb_owner` from the Neon Console. Local/CI only. |
+| `DATABASE_URL`        | The `app_user` pooled string printed by `db:setup-role`.                         |
+| `APP_ORIGIN`          | `http://localhost:3000` locally; the production URL on Vercel.                   |
+| `WEEKLY_OFF_DAYS`     | `THU,FRI` (working week is Saturday to Wednesday)                                |
+| `HIJRI_BD_DAY_OFFSET` | `1` (days added to the Saudi Hijri date for Bangladesh moon sighting)            |
 
 Run `db:setup-role` once after the first migrate (it is safe to repeat; it resets the
 `app_user` password, so re-paste the new `DATABASE_URL` everywhere if you run it again).
@@ -43,7 +44,7 @@ Run `db:setup-role` once after the first migrate (it is safe to repeat; it reset
 | `npm run db:generate`                 | Generate a SQL migration after editing the Drizzle schema        |
 | `npm run db:migrate`                  | Apply migrations, then re-apply the append-only audit_log revoke |
 | `npm run db:setup-role`               | Create/reset `app_user` and its grants                           |
-| `npm run db:seed`                     | Seed faculties, departments, active series                       |
+| `npm run db:seed`                     | Seed faculties, departments, active series, 2026 yearly holidays |
 | `npm run db:create-admin`             | Create an admin (`-- --deactivate <email>` to deactivate)        |
 | `npm run test:auth` / `test:holidays` | End-to-end checks against a running dev server + database        |
 
@@ -52,7 +53,7 @@ Run `db:setup-role` once after the first migrate (it is safe to repeat; it reset
 1. Push to GitHub, import the repo in Vercel (Hobby, framework auto-detected as Next.js).
 2. Set **only** these environment variables (Production): `DATABASE_URL` (the `app_user`
    string), `APP_ORIGIN` (the final `https://…vercel.app` URL, no trailing slash),
-   `WEEKLY_OFF_DAYS`. **Never** add `DATABASE_URL_OWNER` to Vercel.
+   `WEEKLY_OFF_DAYS` (`THU,FRI`), `HIJRI_BD_DAY_OFFSET` (`1`). **Never** add `DATABASE_URL_OWNER` to Vercel.
 3. Run migrations/seed/admin creation from your own machine (they use the owner URL).
 4. After changing env vars, redeploy: Vercel only applies them to new deployments.
 
