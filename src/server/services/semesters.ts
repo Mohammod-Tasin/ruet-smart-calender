@@ -20,7 +20,6 @@ import {
   type Checkpoint,
   type Phase,
   type Pin,
-  type SemesterState,
   type Template,
   type Timeline,
   type WeekOverride,
@@ -186,38 +185,29 @@ async function timelinesFor(x: Executor, list: SemesterRecord[], change?: Propos
 // Public reads
 // ---------------------------------------------------------------------------------------
 
-export type StatusPhase = SemesterState['phase'] | 'COMPLETED' | 'AWAITING_NEXT';
-
 export async function statusOn(date: string = todayInDhaka()) {
   const db = getDb();
   const all = await fetchSemesters(db);
-  // One semester per series: the ACTIVE one, else a recently completed one.
-  const recent = addDays(date, -60);
+  // One semester per series: the ACTIVE one, else the latest one completed in the last 60 days
+  // (counted from today, not from `date`, so "show state on date" can look ahead or back).
+  const recent = addDays(todayInDhaka(), -60);
   const pick = new Map<number, SemesterRecord>();
   for (const s of all) {
     const have = pick.get(s.seriesId);
     if (s.status === 'ACTIVE') pick.set(s.seriesId, s);
-    else if (!have && s.updatedAt.slice(0, 10) >= recent) pick.set(s.seriesId, s);
+    else if (have?.status !== 'ACTIVE' && s.updatedAt.slice(0, 10) >= recent)
+      pick.set(s.seriesId, s);
   }
   const { structure, result } = await timelinesFor(db, [...pick.values()]);
 
-  const series = result.map(({ semester: s, timeline }) => {
-    const state = stateOn(timeline, s.template, date);
-    const phase: StatusPhase =
-      s.status === 'COMPLETED'
-        ? 'COMPLETED'
-        : state.phase === 'ENDED'
-          ? 'AWAITING_NEXT'
-          : state.phase;
-    return {
-      seriesId: s.seriesId,
-      series: seriesLabel(structure, s.seriesId),
-      semesterId: s.id,
-      label: s.label,
-      status: s.status,
-      state: { ...state, phase },
-    };
-  });
+  const series = result.map(({ semester: s, timeline }) => ({
+    seriesId: s.seriesId,
+    series: seriesLabel(structure, s.seriesId),
+    semesterId: s.id,
+    label: s.label,
+    status: s.status,
+    state: stateOn(timeline, s.template, date, { completed: s.status === 'COMPLETED' }),
+  }));
   const summary: Record<string, number> = {};
   for (const x of series) summary[x.state.phase] = (summary[x.state.phase] ?? 0) + 1;
   return { date, summary, series };
@@ -240,7 +230,7 @@ export async function semesterTimeline(id: number, date: string = todayInDhaka()
       template: s.template,
     },
     ...timeline,
-    state: stateOn(timeline, s.template, date),
+    state: stateOn(timeline, s.template, date, { completed: s.status === 'COMPLETED' }),
   });
 }
 

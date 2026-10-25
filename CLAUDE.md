@@ -388,7 +388,9 @@ Default template: CLASS 7 wk (extends), MID_BREAK 1 (no extend), CLASS 6 wk
 (Sat–Wed) are off for that series is skipped and shifts the rest; partial weeks,
 holidays split across two weeks, and full weeks in MID_BREAK never shift (admin can
 force). Manual corrections: checkpoints, week overrides (FORCE_EXTEND / NO_EXTEND),
-template override, pins. Pure engine in `src/core/semester/timeline.ts`; state is
+template override, pins (a pinned phase starts exactly on its date: that week is never
+skipped, even if it is fully off; a pin on CLASS is not allowed). A series whose weeks
+are over shows AWAITING_NEXT until an admin completes it (COMPLETED). Pure engine in `src/core/semester/timeline.ts`; state is
 shown on a Status page and timeline drawer, **never inside calendar day cells**.
 Details and API list: `docs/phase-9-11-spec.md` §4.
 

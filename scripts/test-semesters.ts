@@ -318,12 +318,25 @@ async function main() {
       mode: 'FORCE_EXTEND',
     });
     const tlOv = await timeline(sEee23);
+    // The end date is NOT a safe thing to compare: in 2090 the extra week can move the mid break
+    // into a vacation, which then costs nothing (see tests/timeline.test.ts). What an extension
+    // does guarantee is that the week is skipped and the class week it replaced comes a week later.
+    type W = { weekStart: string; status: string; classWeekNo: number | null };
+    const wasWeekNo = weekOf(after[0]!.json, forced)?.classWeekNo;
+    const nextCounted = (tlOv.json.weeks as W[]).find(
+      (w) => w.weekStart > forced && w.status === 'COUNTED',
+    );
+    const baseNext = (after[0]!.json.weeks as W[]).find(
+      (w) => w.weekStart > forced && w.status === 'COUNTED',
+    );
     check(
-      '10. FORCE_EXTEND on a normal week pushes EEE-23 back one more week',
+      '10. FORCE_EXTEND skips that week; the class week it replaced moves to the next counted week',
       ov.status === 200 &&
         weekOf(tlOv.json, forced)?.status === 'FORCED_SKIP' &&
-        (Date.parse(tlOv.json.endDate) - Date.parse(after[0]!.json.endDate)) / (7 * 86_400_000) ===
-          1,
+        typeof wasWeekNo === 'number' &&
+        nextCounted?.classWeekNo === wasWeekNo &&
+        baseNext?.classWeekNo === wasWeekNo + 1,
+      `week ${forced} was class week ${wasWeekNo}; next counted week is ${nextCounted?.classWeekNo}`,
     );
     await me.call('DELETE', `/api/admin/semesters/${sEee23}/week-overrides`, { weekStart: forced });
 
@@ -354,13 +367,18 @@ async function main() {
 
     // 12. complete + status
     const done = await me.call('POST', `/api/admin/semesters/${sCse23}/complete`);
-    const status3 = await (await fetch(`${BASE}/api/status?date=${day}&t=${Date.now()}`)).json();
-    const cseState = status3.series.find((s: { semesterId: number }) => s.semesterId === sCse23)
-      ?.state.phase;
+    // No ?date: a completed semester is listed for 60 days from today, whatever date is viewed.
+    const status3 = await (await fetch(`${BASE}/api/status?t=${Date.now()}`)).json();
+    const cseState = status3.series.find(
+      (s: { semesterId: number }) => s.semesterId === sCse23,
+    )?.state;
     check(
-      '12. complete CSE-23: status shows COMPLETED',
-      done.status === 200 && cseState === 'COMPLETED',
-      `phase ${cseState}`,
+      '12. complete CSE-23: status shows COMPLETED, labelled, with no next milestone',
+      done.status === 200 &&
+        cseState?.phase === 'COMPLETED' &&
+        cseState.label === 'Semester completed' &&
+        cseState.nextMilestone === null,
+      `phase ${cseState?.phase}, label "${cseState?.label}"`,
     );
 
     // 13. soft delete

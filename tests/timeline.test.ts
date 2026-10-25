@@ -292,10 +292,82 @@ describe('stateOn', () => {
       nextMilestone: { phase: 'ENDED', date: '2027-02-20' },
     });
     expect(at('2027-02-20')).toMatchObject({
-      phase: 'ENDED',
+      phase: 'AWAITING_NEXT',
+      label: 'Semester ended: enter the next start date',
       progress: 1,
       nextMilestone: null,
     });
+  });
+
+  test('a semester an admin marked COMPLETED has a proper completed state', () => {
+    const done = (d: string) => stateOn(tl, DEFAULT_TEMPLATE, d, { completed: true });
+    // in the middle of the timeline, after it, and long before/after: always the same state
+    for (const d of ['2026-09-01', '2026-11-03', '2027-01-27', '2027-03-01', '2090-01-01']) {
+      expect(done(d)).toMatchObject({
+        phase: 'COMPLETED',
+        label: 'Semester completed',
+        classWeekNo: null,
+        progress: 1,
+        nextMilestone: null,
+        onSkippedWeek: false,
+        totalClassWeeks: 13,
+      });
+    }
+    expect(done('2026-11-03').delayedWeeks).toBe(1); // the history is still there
+  });
+});
+
+// Found by test:semesters in 2090, where Eid-ul-Adha falls in the finals period.
+describe('interaction of corrections with holidays', () => {
+  test('a forced extension can be absorbed when it moves the mid break into a vacation', () => {
+    const vacation: [string, string] = ['2026-11-28', '2026-12-02']; // a full week
+    const plain = run(offOf(vacation));
+    // Without the correction the vacation lands in class week 8 and pushes everything +1 week.
+    expect(plain.endDate).toBe('2027-02-19');
+    expect(skipped(plain)).toEqual(['2026-11-28']);
+
+    const forced = run({
+      ...offOf(vacation),
+      weekOverrides: [{ weekStart: '2026-10-24', mode: 'FORCE_EXTEND' }],
+    });
+    // The forced week is skipped and the mid break moves to 28 Nov, inside the vacation. A full
+    // holiday week in the mid break shifts nothing, so the vacation now costs no extra week.
+    expect(forced.weeks.find((w) => w.weekStart === '2026-10-24')?.status).toBe('FORCED_SKIP');
+    expect(forced.weeks.find((w) => w.weekStart === '2026-11-28')).toMatchObject({
+      phase: 'MID_BREAK',
+      status: 'COUNTED',
+    });
+    expect(skipped(forced)).toEqual(['2026-10-24']);
+    expect(forced.endDate).toBe(plain.endDate);
+    // What the extension does guarantee: the class week that was pushed out comes one week later.
+    const classWeek4 = (t: typeof plain) => t.weeks.find((w) => w.classWeekNo === 4)!.weekStart;
+    expect(classWeek4(plain)).toBe('2026-10-24');
+    expect(classWeek4(forced)).toBe('2026-10-31');
+  });
+
+  test('a pin on a week that is fully off still starts the phase on the pin date', () => {
+    const eid: [string, string] = ['2027-02-06', '2027-02-10']; // a full week
+    const pins = [{ phase: 'FINALS' as const, startDate: '2027-02-06' }];
+    const unpinned = run({ ...offOf(eid) });
+    // Without a pin the computed finals start 16 Jan (before the vacation) and nothing is pinned.
+    expect(starts(unpinned)[4]).toBe('2027-01-16');
+
+    const pinned = run({ ...offOf(eid), pins });
+    expect(starts(pinned)[4]).toBe('2027-02-06'); // exactly the date the admin typed
+    expect(pinned.weeks.find((w) => w.weekStart === '2027-02-06')).toMatchObject({
+      status: 'COUNTED',
+      reason: 'Fixed start date, counted although the whole week is off',
+    });
+    expect(skipped(pinned)).toEqual(['2027-01-16', '2027-01-23', '2027-01-30']); // the waiting weeks
+  });
+
+  test('only the pinned week is exempt: a later off week still extends the phase', () => {
+    const tl = run({
+      ...offOf(['2027-02-06', '2027-02-10'], ['2027-02-13', '2027-02-17']),
+      pins: [{ phase: 'FINALS', startDate: '2027-02-06' }],
+    });
+    expect(skipped(tl)).toContain('2027-02-13');
+    expect(tl.weeks.filter((w) => w.phase === 'FINALS' && w.status === 'COUNTED')).toHaveLength(4);
   });
 });
 

@@ -153,7 +153,14 @@ export function computeTimeline(input: TimelineInput): Timeline {
     );
     const fullyOff = working.length > 0 && working.every(isOffDay);
     const mode = overrides.get(w);
-    const skip = seg.extendable && mode !== 'NO_EXTEND' && (fullyOff || mode === 'FORCE_EXTEND');
+    // The week a pin names is the admin's fixed start of that phase: it is never skipped, even
+    // if the week happens to be off, so the phase really starts on the date they typed.
+    const pinnedStart = d === 0 && pins.some((p) => p.seg === s && p.week === w);
+    const skip =
+      seg.extendable &&
+      mode !== 'NO_EXTEND' &&
+      !pinnedStart &&
+      (fullyOff || mode === 'FORCE_EXTEND');
 
     if (skip) {
       const titles = [...new Set(working.flatMap((day) => input.titlesOn?.(day) ?? []))];
@@ -177,7 +184,11 @@ export function computeTimeline(input: TimelineInput): Timeline {
       phaseWeekIndex: index,
       classWeekNo: seg.phase === 'CLASS' ? index : null,
       status: 'COUNTED',
-      reason: fullyOff ? 'Counted although the whole week is off' : null,
+      reason: !fullyOff
+        ? null
+        : pinnedStart
+          ? 'Fixed start date, counted although the whole week is off'
+          : 'Counted although the whole week is off',
     });
     if (++d >= seg.weeks) ({ s, d } = { s: s + 1, d: 0 });
   }
@@ -193,7 +204,11 @@ export function computeTimeline(input: TimelineInput): Timeline {
 
 // --- State on a date ---------------------------------------------------------------------------
 
-export type StatePhase = Phase | 'NOT_STARTED' | 'ENDED';
+/**
+ * COMPLETED: the admin marked the semester done. AWAITING_NEXT: its weeks are over but nobody
+ * has completed it / started the next one ("পরের সেমিস্টার শুরুর তারিখ দিন").
+ */
+export type StatePhase = Phase | 'NOT_STARTED' | 'AWAITING_NEXT' | 'COMPLETED';
 
 export interface SemesterState {
   phase: StatePhase;
@@ -219,7 +234,12 @@ const PHASE_NAME: Record<Phase, string> = {
   FINALS: 'Finals',
 };
 
-export function stateOn(tl: Timeline, template: Template, date: string): SemesterState {
+export function stateOn(
+  tl: Timeline,
+  template: Template,
+  date: string,
+  opts: { completed?: boolean } = {},
+): SemesterState {
   const total = template.reduce((n, p) => n + p.weeks, 0);
   const skipped = tl.weeks.filter((x) => x.status !== 'COUNTED');
   const byReason = new Map<string, number>();
@@ -230,6 +250,19 @@ export function stateOn(tl: Timeline, template: Template, date: string): Semeste
     delayedWeeks: skipped.length,
     reasons: [...byReason].map(([reason, weeks]) => ({ reason, weeks })),
   };
+
+  // Marked done by an admin: nothing is coming, whatever the weeks say.
+  if (opts.completed) {
+    return {
+      ...base,
+      phase: 'COMPLETED',
+      label: 'Semester completed',
+      classWeekNo: null,
+      progress: 1,
+      nextMilestone: null,
+      onSkippedWeek: false,
+    };
+  }
 
   if (date < tl.startDate) {
     return {
@@ -246,8 +279,8 @@ export function stateOn(tl: Timeline, template: Template, date: string): Semeste
   if (i < 0) {
     return {
       ...base,
-      phase: 'ENDED',
-      label: 'Semester ended',
+      phase: 'AWAITING_NEXT',
+      label: 'Semester ended: enter the next start date',
       classWeekNo: null,
       progress: 1,
       nextMilestone: null,
