@@ -285,6 +285,8 @@ export interface JourneyState {
   semesterLabel: string | null;
   phase: JPhase | null;
   weekNo: number | null;
+  /** Length in weeks of the current phase block (from the stored structure). */
+  phaseWeeks: number | null;
   /** This very week is a skipped (holiday) week. */
   onSkippedWeek: boolean;
   confirmed: boolean;
@@ -321,6 +323,7 @@ export function stateOn(j: Journey, date: string): JourneyState {
     semesterLabel: null,
     phase: null,
     weekNo: null,
+    phaseWeeks: null,
     onSkippedWeek: false,
     confirmed: false,
     nextMilestone: null,
@@ -364,6 +367,11 @@ export function stateOn(j: Journey, date: string): JourneyState {
     semesterLabel: semesterLabel(now.semesterNo),
     phase: now.phase,
     weekNo: now.weekNo,
+    phaseWeeks: Math.max(
+      ...j.weeks
+        .filter((w) => w.semesterNo === now.semesterNo && w.block === now.block)
+        .map((w) => w.weekNo),
+    ),
     onSkippedWeek: now.status === 'SKIPPED',
     confirmed: now.confirmed,
     nextMilestone,

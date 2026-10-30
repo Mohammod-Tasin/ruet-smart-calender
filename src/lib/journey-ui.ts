@@ -1,6 +1,5 @@
 import {
   bnDigits,
-  DEFAULT_STRUCTURE,
   type JourneySemester,
   type JourneyState,
   type JourneyWeek,
@@ -70,20 +69,13 @@ const ORDINAL: Record<number, string> = { 1: '১ম', 2: '২য়', 3: '৩�
 /** 3 -> "৩য়" */
 export const nth = (n: number) => ORDINAL[n] ?? `${bnDigits(n)}ম`;
 
-// ponytail: exam length read from the default structure; if an admin changes the structure the
-// "x/4" in a matrix cell can be off by that much. Add `phaseWeeks` to the state when it matters.
-const EXAM_WEEKS = DEFAULT_STRUCTURE.filter((b) => b.phase === 'EXAM').reduce(
-  (n, b) => n + b.weeks,
-  0,
-);
-
 /** Matrix cell: 2-3 words. */
 export function cellText(s: JourneyState): string {
   if (s.status !== 'RUNNING' || !s.phase) return '—';
   if (s.onSkippedWeek) return 'ছুটি';
   const w = bnDigits(s.weekNo ?? 1);
   if (s.phase === 'CLASS') return `ক্লাস ${w}`;
-  if (s.phase === 'EXAM') return `পরীক্ষা ${w}/${bnDigits(EXAM_WEEKS)}`;
+  if (s.phase === 'EXAM') return `পরীক্ষা ${w}/${bnDigits(s.phaseWeeks ?? 0)}`;
   return PHASE_BN[s.phase];
 }
 
@@ -159,9 +151,6 @@ export const NONE_CELL =
 /** A skipped (holiday) week: grey with diagonal hatching. */
 export const SKIPPED_STRIP =
   'bg-zinc-300 [background-image:repeating-linear-gradient(45deg,transparent_0_3px,rgb(0_0_0/0.35)_3px_5px)] dark:bg-zinc-600 dark:[background-image:repeating-linear-gradient(45deg,transparent_0_3px,rgb(255_255_255/0.35)_3px_5px)]';
-
-/** Faculty code as shown to students: ECE -> FECE, CE -> FCE, ME -> FME. */
-export const facultyShort = (code: string) => `F${code}`;
 
 /** The series of a department code + intake year, if it exists. */
 export const findSeries = (st: ApiStructure, deptCode: string, year: number) => {

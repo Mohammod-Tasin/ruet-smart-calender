@@ -100,9 +100,38 @@ export function ImpactGroups({ groups }: { groups: ImpactGroup[] }) {
   );
 }
 
+/**
+ * Two-step save for forms: when the change would shift a semester, the first submit only "arms"
+ * the form (the button turns into "Confirm and save"); the second submit goes through.
+ * Editing the dates un-arms it, because the key (the change itself) differs.
+ */
+export function useShiftConfirm(change: ProposedChange | null) {
+  const impact = useImpact(change);
+  const key = hasChange(change) ? JSON.stringify(change) : '';
+  const [armed, setArmed] = useState('');
+  const shifts = !!impact.groups?.length;
+  return {
+    impact,
+    armed: shifts && armed === key,
+    /** true = go ahead and save; false = the form just asked for confirmation. */
+    proceed: () => {
+      if (!shifts || armed === key) return true;
+      setArmed(key);
+      return false;
+    },
+  };
+}
+
 /** What the change does to running semesters, as ONE line. Nothing until there is a change. */
-export function ImpactPreview({ change }: { change: ProposedChange | null }) {
-  const { active, loading, groups, error } = useImpact(change);
+export function ImpactPreview({
+  change,
+  impact,
+}: {
+  change: ProposedChange | null;
+  impact?: ReturnType<typeof useImpact>;
+}) {
+  const own = useImpact(impact ? null : change);
+  const { active, loading, groups, error } = impact ?? own;
   if (!active) return null;
   return (
     <p

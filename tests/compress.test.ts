@@ -4,9 +4,9 @@ import type { AudienceEntry, Structure } from '@/core/calendar/types';
 
 // Faculties are listed out of order on purpose: sort_order must decide, not array order.
 const faculties = [
-  { id: 3, code: 'ME', sortOrder: 3 },
-  { id: 1, code: 'ECE', sortOrder: 1 },
-  { id: 2, code: 'CE', sortOrder: 2 },
+  { id: 3, code: 'FME', sortOrder: 3 },
+  { id: 1, code: 'FECE', sortOrder: 1 },
+  { id: 2, code: 'FCE', sortOrder: 2 },
 ];
 const depts = {
   EEE: { id: 1, facultyId: 1, code: 'EEE' },
@@ -51,9 +51,9 @@ const cases: [string, AudienceEntry[], string][] = [
   ['empty audience', [], ''],
   ['one full department', [dep('CSE')], 'CSE'],
   ['full department ignores its inactive series', [dep('CSE'), ser('CSE', 19)], 'CSE'],
-  ['full faculty', [fac(1)], 'ECE Faculty'],
-  ['faculty built from all its departments', [dep('EEE'), dep('CSE')], 'ECE Faculty'],
-  ['faculty ignores departments with no active series', [fac(1)], 'ECE Faculty'],
+  ['full faculty', [fac(1)], 'FECE'],
+  ['faculty built from all its departments', [dep('EEE'), dep('CSE')], 'FECE'],
+  ['faculty ignores departments with no active series', [fac(1)], 'FECE'],
   ['every department collapses to ALL', Object.keys(depts).map((d) => dep(d as 'CSE')), 'ALL'],
   ['every faculty collapses to ALL', [fac(1), fac(2), fac(3)], 'ALL'],
   [
@@ -80,11 +80,7 @@ const cases: [string, AudienceEntry[], string][] = [
     [dep('ME'), dep('ARCH'), dep('CSE')],
     'CSE · ARCH · ME',
   ],
-  [
-    'full faculty beside loose series',
-    [dep('EEE'), dep('CSE'), ser('ARCH', 23)],
-    'ECE Faculty · ARCH-23',
-  ],
+  ['full faculty beside loose series', [dep('EEE'), dep('CSE'), ser('ARCH', 23)], 'FECE · ARCH-23'],
   ['department code order inside a faculty', [dep('EEE'), ser('CSE', 23)], 'CSE-23 · EEE'],
   ['duplicate entries are harmless', [dep('CSE'), dep('CSE')], 'CSE'],
 ];

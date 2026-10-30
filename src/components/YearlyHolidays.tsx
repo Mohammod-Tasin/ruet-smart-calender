@@ -13,7 +13,7 @@ import { useStructure } from '@/lib/hooks';
 import { HIJRI_MONTHS, KIND_LABEL, WEEKDAYS_BN, bn, ruleSummary } from '@/lib/rule-summary';
 import type { ImpactGroup } from '@/core/journey/impact';
 import { AudiencePicker } from './AudiencePicker';
-import { hasChange, ImpactGroups, ImpactPreview } from './ImpactPreview';
+import { hasChange, ImpactGroups, ImpactPreview, useShiftConfirm } from './ImpactPreview';
 import { Sheet } from './Sheet';
 import { TrimHint } from './TrimHint';
 import { useToast } from './Toast';
@@ -253,7 +253,12 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
               onEnd={() => setDialog({ kind: 'end', rule: r })}
               onDates={() => setDialog({ kind: 'dates', rule: r, year })}
               onShift={(n) => shift(r, n)}
-              onConfirm={() => override(r, { confirmed: true }, 'Confirmed.')}
+              onConfirm={() => {
+                const info = r.yearInfo?.final ?? r.yearInfo?.computed;
+                void guarded(r, info ?? null, `${r.title}: confirm`, () =>
+                  override(r, { confirmed: true }, 'Confirmed.'),
+                );
+              }}
               onSkip={(skipped) =>
                 guarded(
                   r,
@@ -571,13 +576,14 @@ function DatesForm({
         add: [{ startDate: start, endDate: end, audience: rule.audience }],
       }
     : null;
+  const confirm = useShiftConfirm(impactChange);
   return (
     <Sheet title={`${rule.title} · ${year}`} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!ok) return;
+          if (!ok || !confirm.proceed()) return;
           onSave({
             startDate: start,
             endDate: end,
@@ -633,8 +639,12 @@ function DatesForm({
             setEnd(r.endDate);
           }}
         />
-        <ImpactPreview change={impactChange} />
-        <FormButtons label="Save dates" onClose={onClose} disabled={!ok} />
+        <ImpactPreview change={impactChange} impact={confirm.impact} />
+        <FormButtons
+          label={confirm.armed ? 'Confirm and save' : 'Save dates'}
+          onClose={onClose}
+          disabled={!ok}
+        />
       </form>
     </Sheet>
   );
@@ -995,6 +1005,17 @@ function YearDatesForm({
     setDates((d) => ({ ...d, [id]: v }));
   const filled = rules.filter((r) => get(r.id).start && get(r.id).end);
   const bad = filled.some((r) => get(r.id).end < get(r.id).start);
+  const impactChange =
+    filled.length > 0 && !bad
+      ? {
+          add: filled.map((r) => ({
+            startDate: get(r.id).start,
+            endDate: get(r.id).end,
+            audience: r.audience,
+          })),
+        }
+      : null;
+  const confirm = useShiftConfirm(impactChange);
 
   async function save() {
     setSaving(true);
@@ -1022,7 +1043,7 @@ function YearDatesForm({
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          void save();
+          if (confirm.proceed()) void save();
         }}
       >
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -1066,8 +1087,9 @@ function YearDatesForm({
             </fieldset>
           );
         })}
+        <ImpactPreview change={impactChange} impact={confirm.impact} />
         <FormButtons
-          label={saving ? 'সংরক্ষণ হচ্ছে…' : 'সংরক্ষণ'}
+          label={saving ? 'সংরক্ষণ হচ্ছে…' : confirm.armed ? 'নিশ্চিত করে সংরক্ষণ' : 'সংরক্ষণ'}
           onClose={onClose}
           disabled={saving || bad || filled.length === 0}
         />

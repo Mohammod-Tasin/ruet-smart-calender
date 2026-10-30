@@ -6,9 +6,9 @@ import type { AudienceEntry, Structure } from '@/core/calendar/types';
 // OLD(6) in ECE has only an inactive series. Series id = deptId * 100 + two-digit year.
 const structure: Structure = {
   faculties: [
-    { id: 1, code: 'ECE', sortOrder: 1 },
-    { id: 2, code: 'CE', sortOrder: 2 },
-    { id: 3, code: 'ME', sortOrder: 3 },
+    { id: 1, code: 'FECE', sortOrder: 1 },
+    { id: 2, code: 'FCE', sortOrder: 2 },
+    { id: 3, code: 'FME', sortOrder: 3 },
   ],
   departments: [
     { id: 1, facultyId: 1, code: 'EEE' },
@@ -180,7 +180,7 @@ const rows: Row[] = [
     cand('2026-10-10', '2026-10-10', [fac(1), fac(2)]),
     [h(1, '2026-10-10', '2026-10-10', [fac(1)])],
     undefined,
-    [{ id: 1, start: '2026-10-10', end: '2026-10-10', shared: 'ECE Faculty' }],
+    [{ id: 1, start: '2026-10-10', end: '2026-10-10', shared: 'FECE' }],
   ],
   [
     'different departments, same dates: no shared series',

@@ -352,3 +352,13 @@ describe('impact diff', () => {
     expect(diffJourneys(before, run(p), 4)).toBeNull();
   });
 });
+
+describe('phase length comes from the structure', () => {
+  test.each([
+    [4, DEFAULT_STRUCTURE],
+    [5, DEFAULT_STRUCTURE.map((b) => (b.phase === 'EXAM' ? { ...b, weeks: 5 } : b))],
+  ])('exam of %i weeks', (weeks, structure) => {
+    const j = run([pos('2026-10-24', 4, 'EXAM', 2)], { structure });
+    expect(stateOn(j, '2026-10-24')).toMatchObject({ phase: 'EXAM', weekNo: 2, phaseWeeks: weeks });
+  });
+});

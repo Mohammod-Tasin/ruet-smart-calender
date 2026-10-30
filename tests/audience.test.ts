@@ -6,8 +6,8 @@ import type { Structure } from '@/core/calendar/types';
 // Faculty 1: EEE(1) CSE(2); faculty 2: CE(3). Series id = dept*10 + 1..2.
 const structure: Structure = {
   faculties: [
-    { id: 1, code: 'ECE', sortOrder: 1 },
-    { id: 2, code: 'CE', sortOrder: 2 },
+    { id: 1, code: 'FECE', sortOrder: 1 },
+    { id: 2, code: 'FCE', sortOrder: 2 },
   ],
   departments: [
     { id: 1, facultyId: 1, code: 'EEE' },

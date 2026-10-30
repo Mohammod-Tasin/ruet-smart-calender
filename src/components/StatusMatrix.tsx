@@ -1,14 +1,7 @@
 'use client';
 import { bnDigits } from '@/core/journey/journey';
 import type { ApiStructure } from '@/lib/api';
-import {
-  cellText,
-  facultyShort,
-  headline,
-  NONE_CELL,
-  PHASE_STYLE,
-  type StatusEntry,
-} from '@/lib/journey-ui';
+import { cellText, headline, NONE_CELL, PHASE_STYLE, type StatusEntry } from '@/lib/journey-ui';
 
 const sticky = 'sticky left-0 z-10 bg-white dark:bg-zinc-950';
 
@@ -74,8 +67,7 @@ export function StatusMatrix({
                 className="bg-zinc-50 px-2 py-1 text-xs font-semibold dark:bg-zinc-900"
               >
                 <span className="sticky left-2">
-                  {facultyShort(f.code)}{' '}
-                  <span className="font-normal text-zinc-500">· {f.name}</span>
+                  {f.code} <span className="font-normal text-zinc-500">· {f.name}</span>
                 </span>
               </th>
             </tr>

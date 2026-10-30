@@ -37,7 +37,7 @@ export function appliesToSeries(
 
 /**
  * Collapses an audience into a short label, bottom-up:
- * all active series of a department -> `CSE`; all departments of a faculty -> `ECE Faculty`;
+ * all active series of a department -> `CSE`; all departments of a faculty -> `FECE`;
  * everything -> `ALL`. Otherwise lists what is left, e.g. `CSE · EEE-22`.
  * Order: faculty sort_order, department code, intake year descending.
  */
@@ -72,7 +72,7 @@ export function compressAudience(audience: AudienceEntry[], structure: Structure
     const fullDepts = depts.filter((d) => activeByDept.get(d.id)!.every((s) => covered.has(s.id)));
     if (fullDepts.length === depts.length) {
       facultiesFull++;
-      parts.push(`${f.code} Faculty`);
+      parts.push(f.code);
       continue;
     }
 

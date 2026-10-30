@@ -219,7 +219,7 @@ Given a holiday's audience and the current set of active series, produce a
 display label, collapsing bottom-up:
 
 1. All active series of a department present → show department code (`CSE`).
-2. All departments of a faculty present → show faculty label (`ECE Faculty`).
+2. All departments of a faculty present → show faculty label (`FECE`).
 3. All departments present → `ALL`.
    Order: faculty sort_order, then department code, then intake year descending.
    Series format: `CSE-23` (department code + last two digits of intake year).
@@ -432,7 +432,7 @@ pure engine in `src/core/journey/` from the admin inputs below plus `getOffDays(
 Undergraduate degree-awarding departments (14):
 
 - Faculty of Electrical & Computer Engineering (ECE): EEE, CSE, ECE, ETE
-  (faculty codes ECE, CE, ME may equal a department code; labels add " Faculty" to tell them apart)
+  (faculty codes are FECE, FCE, FME in the DB, so they never collide with department codes ECE, CE, ME)
 - Faculty of Civil Engineering (CE): CE, ARCH, URP, BECM
 - Faculty of Mechanical Engineering (ME): ME, IPE, CME, MTE, MSE, ChE
 
