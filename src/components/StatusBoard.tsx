@@ -2,10 +2,9 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { todayInDhaka } from '@/core/calendar/grid';
-import { bnDigits } from '@/core/journey/journey';
 import { isRealDate } from '@/core/validation/holidays-query';
 import { useStatus, useStructure } from '@/lib/hooks';
-import { bnDate, findSeries, PHASE_BN } from '@/lib/journey-ui';
+import { dayText, findSeries, PHASE_SHORT } from '@/lib/journey-ui';
 import { useMySeries } from '@/lib/my-series';
 import { MySeriesBar } from './MySeriesBar';
 import { SeriesSheet } from './SeriesSheet';
@@ -15,7 +14,7 @@ import { TopNav } from './TopNav';
 
 const SUMMARY_ORDER = ['CLASS', 'MID_BREAK', 'VIVA', 'EXAM', 'SEMESTER_BREAK'] as const;
 
-/** Public স্ট্যাটাস tab: my-series line, summary, the matrix, and a series sheet on tap. */
+/** Public Semester Status tab: my-series line, summary, the matrix, and a series sheet on tap. */
 export function StatusBoard() {
   const router = useRouter();
   const pathname = usePathname();
@@ -45,7 +44,7 @@ export function StatusBoard() {
   return (
     <main className="mx-auto max-w-5xl space-y-3 px-2 py-3 sm:px-4">
       <div className="flex items-center justify-between gap-2 px-1">
-        <h1 className="text-xl font-bold sm:text-2xl">RUET সেমিস্টার স্ট্যাটাস</h1>
+        <h1 className="text-xl font-bold sm:text-2xl">RUET Semester Status</h1>
         <ThemeToggle />
       </div>
       <TopNav />
@@ -60,31 +59,31 @@ export function StatusBoard() {
           role="alert"
           className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
         >
-          <p>স্ট্যাটাস লোড করা যায়নি। ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।</p>
+          <p>Could not load the status. Check your internet connection and try again.</p>
           <button
             type="button"
             className="mt-2 rounded-md bg-red-700 px-3 py-1.5 font-medium text-white"
             onClick={() => setRetry((n) => n + 1)}
           >
-            আবার চেষ্টা করুন
+            Try again
           </button>
         </div>
       ) : (
         <>
           <section
-            aria-label="সারসংক্ষেপ"
+            aria-label="Summary"
             aria-live="polite"
             className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
           >
             <p className="text-sm font-medium">
-              {date === today ? 'আজ' : bnDate(date, true)}
-              {loading ? ' …' : `: ${bnDigits(started)}টি সিরিজের সেমিস্টার চলছে`}
+              All departments {date === today ? 'today' : `on ${dayText(date)}`}
+              {loading ? ' …' : ''}
             </p>
             {!loading && data && started > 0 && (
               <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-sm text-zinc-700 dark:text-zinc-300">
                 {SUMMARY_ORDER.filter((p) => data.summary[p]).map((p) => (
                   <li key={p}>
-                    {PHASE_BN[p]} {bnDigits(data.summary[p]!)}
+                    {PHASE_SHORT[p]} {data.summary[p]!}
                   </li>
                 ))}
               </ul>
@@ -93,7 +92,7 @@ export function StatusBoard() {
 
           <div className="flex flex-wrap items-end gap-2 px-1">
             <label className="text-sm">
-              <span className="mb-1 block font-medium">অন্য দিনের অবস্থা</span>
+              <span className="mb-1 block font-medium">Show another date</span>
               <input
                 type="date"
                 value={date}
@@ -102,7 +101,7 @@ export function StatusBoard() {
               />
             </label>
             <span className="pb-2 text-sm text-zinc-600 dark:text-zinc-400" aria-hidden>
-              {bnDate(date, true)}
+              {dayText(date)}
             </span>
             {date !== today && (
               <button
@@ -110,7 +109,7 @@ export function StatusBoard() {
                 onClick={() => setDate(today)}
                 className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
               >
-                আজ
+                Today
               </button>
             )}
           </div>
@@ -123,18 +122,18 @@ export function StatusBoard() {
               onCell={(e) => setOpen(e.seriesId)}
             />
           ) : (
-            <p className="px-1 text-sm">লোড হচ্ছে…</p>
+            <p className="px-1 text-sm">Loading…</p>
           )}
           {!loading && started === 0 && (
             <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">
-              এখনো কোনো সিরিজের সেমিস্টার চালু করা হয়নি।
+              No batch has a semester status yet.
             </p>
           )}
         </>
       )}
 
       <p className="px-1 text-xs text-zinc-500 dark:text-zinc-400">
-        ঘরে ট্যাপ করলে সিরিজের পুরো তালিকা দেখা যাবে। ছুটির তালিকা বদলালে তারিখ বদলে যেতে পারে।
+        Tap a box to see that batch&apos;s plan. Dates can change when the holiday list changes.
       </p>
 
       {open !== null && <SeriesSheet seriesId={open} date={date} onClose={() => setOpen(null)} />}

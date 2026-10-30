@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-// "আমার সিরিজ": department code + intake year, remembered in this browser only.
+// "My series": department code + intake year, remembered in this browser only.
 const KEY = 'my-series';
 const EVENT = 'my-series-change';
 export interface MySeries {

@@ -33,6 +33,8 @@ import {
   ok,
   type Person,
   type Result,
+  ALL_WEEKLY_OFF,
+  trimRange,
 } from './shared';
 
 /** Bangladesh usually sights the moon a day after Saudi Arabia. */
@@ -397,8 +399,18 @@ export async function endRule(
 export async function setOverride(
   adminId: number,
   ruleId: number,
-  input: OverrideInput,
-): Promise<Result<{ ruleId: number }>> {
+  raw: OverrideInput,
+): Promise<Result<{ ruleId: number; trimmed?: { startDate: string; endDate: string } }>> {
+  let input = raw;
+  let trimmed: { startDate: string; endDate: string } | undefined;
+  if (raw.startDate && raw.endDate) {
+    const t = trimRange({ startDate: raw.startDate, endDate: raw.endDate });
+    if (!t) return fail('UNPROCESSABLE', ALL_WEEKLY_OFF);
+    if (t.trimmed) {
+      trimmed = { startDate: t.startDate, endDate: t.endDate };
+      input = { ...raw, ...trimmed };
+    }
+  }
   return getDb().transaction(async (tx) => {
     await lockWrites(tx);
     const rule = await oneRule(tx, ruleId);
@@ -436,7 +448,7 @@ export async function setOverride(
       pick(prev),
       pick(next),
     );
-    return ok({ ruleId });
+    return ok({ ruleId, trimmed });
   });
 }
 

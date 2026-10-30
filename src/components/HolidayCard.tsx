@@ -1,5 +1,5 @@
 import type { PublicHoliday } from '@/lib/api';
-import { dateRange, stamp } from '@/lib/format';
+import { audienceText, dateRange, stamp } from '@/lib/format';
 
 export const labelColor = (label: string) =>
   label === 'ALL'
@@ -9,7 +9,7 @@ export const labelColor = (label: string) =>
 const badge =
   'rounded px-1.5 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200';
 
-/** Title, audience, dates, note and "set by". `actions` is the admin's button row. */
+/** Title, audience, dates and note. `actions` is the admin's button row; "set by" is admin-only. */
 export function HolidayCard({
   holiday: h,
   actions,
@@ -25,23 +25,25 @@ export function HolidayCard({
       <h3 className="font-medium">{h.title}</h3>
       <p className="mt-1 flex flex-wrap items-center gap-2 text-sm">
         <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${labelColor(h.label)}`}>
-          {h.label}
+          {audienceText(h.label)}
         </span>
         <span className="text-zinc-600 dark:text-zinc-400">
           {dateRange(h.startDate, h.endDate)}
         </span>
-        {h.classesOnly && <span className={badge}>শুধু ক্লাস বন্ধ</span>}
+        {h.classesOnly && <span className={badge}>Classes off · offices open</span>}
         {h.tentative && (
           <span className="rounded border border-dashed border-red-500 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
-            সম্ভাব্য / Tentative
+            Expected date
           </span>
         )}
         {h.source === 'RULE' && <span className={badge}>Yearly</span>}
       </p>
       {h.note && <p className="mt-2 text-sm whitespace-pre-line">{h.note}</p>}
-      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-        Set by {h.updatedBy.name} · {stamp(h.updatedAt)}
-      </p>
+      {actions && (
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+          Set by {h.updatedBy.name} · {stamp(h.updatedAt)}
+        </p>
+      )}
       {actions && <div className="mt-3 flex flex-wrap gap-2">{actions}</div>}
     </article>
   );

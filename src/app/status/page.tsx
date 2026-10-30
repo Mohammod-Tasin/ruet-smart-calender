@@ -3,13 +3,13 @@ import { Suspense } from 'react';
 import { StatusBoard } from '@/components/StatusBoard';
 
 export const metadata: Metadata = {
-  title: 'স্ট্যাটাস · RUET',
-  description: 'কোন বিভাগ ও সিরিজ এখন সেমিস্টারের কোন ধাপে আছে।',
+  title: 'Semester Status · RUET',
+  description: 'Which semester stage every department and batch is in today.',
 };
 
 export default function StatusPage() {
   return (
-    <Suspense fallback={<p className="p-4 text-sm">লোড হচ্ছে…</p>}>
+    <Suspense fallback={<p className="p-4 text-sm">Loading…</p>}>
       <StatusBoard />
     </Suspense>
   );

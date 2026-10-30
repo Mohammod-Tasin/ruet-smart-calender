@@ -1,5 +1,4 @@
 'use client';
-import { bnDigits } from '@/core/journey/journey';
 import type { ApiStructure } from '@/lib/api';
 import { cellText, headline, NONE_CELL, PHASE_STYLE, type StatusEntry } from '@/lib/journey-ui';
 
@@ -16,12 +15,15 @@ export function StatusMatrix({
   loading,
   onCell,
   onColumn,
+  highlight,
 }: {
   structure: ApiStructure;
   bySeries: Map<number, StatusEntry>;
   loading: boolean;
   onCell: (e: StatusEntry) => void;
   onColumn?: (year: number) => void;
+  /** Series ids to draw attention to (the admin to-do "Set status" link). */
+  highlight?: Set<number>;
 }) {
   const years = [...new Set(structure.series.map((s) => s.intakeYear))].sort((a, b) => a - b);
   const groups = structure.faculties
@@ -31,11 +33,11 @@ export function StatusMatrix({
   return (
     <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
       <table className="w-full border-separate border-spacing-0 text-left" aria-busy={loading}>
-        <caption className="sr-only">বিভাগ ও ভর্তির বছর অনুযায়ী সেমিস্টারের অবস্থা</caption>
+        <caption className="sr-only">Semester status by department and batch</caption>
         <thead>
           <tr>
             <th scope="col" className={`${sticky} px-2 py-1.5 text-xs font-medium text-zinc-500`}>
-              বিভাগ
+              Department
             </th>
             {years.map((y) => (
               <th key={y} scope="col" className="min-w-[4.75rem] px-0.5 py-1 text-center">
@@ -43,15 +45,15 @@ export function StatusMatrix({
                   <button
                     type="button"
                     onClick={() => onColumn(y)}
-                    aria-label={`${bnDigits(y)} সিরিজের সবার অবস্থা দিন`}
+                    aria-label={`Set status for the whole ${y} batch`}
                     className="w-full rounded-md border border-indigo-300 bg-indigo-50 px-1 py-1 text-xs font-semibold text-indigo-900 hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-100"
                   >
-                    {bnDigits(y % 100)} ▾
+                    {String(y % 100)} ▾
                   </button>
                 ) : (
                   <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
-                    <span className="sr-only">{bnDigits(y)} সিরিজ </span>
-                    <span aria-hidden>{bnDigits(y % 100)}</span>
+                    <span className="sr-only">Batch {y} </span>
+                    <span aria-hidden>{String(y % 100)}</span>
                   </span>
                 )}
               </th>
@@ -83,7 +85,13 @@ export function StatusMatrix({
                   const e = s && bySeries.get(s.id);
                   return (
                     <td key={y} className="p-0.5 align-top">
-                      <Cell entry={e} exists={!!s} loading={loading} onOpen={onCell} />
+                      <Cell
+                        entry={e}
+                        exists={!!s}
+                        loading={loading}
+                        onOpen={onCell}
+                        mark={!!s && !!highlight?.has(s.id)}
+                      />
                     </td>
                   );
                 })}
@@ -101,7 +109,9 @@ function Cell({
   exists,
   loading,
   onOpen,
+  mark,
 }: {
+  mark?: boolean;
   entry: StatusEntry | undefined;
   exists: boolean;
   loading: boolean;
@@ -112,7 +122,7 @@ function Cell({
   if (!exists || !entry) {
     return (
       <div className={`${box} ${NONE_CELL} text-xs`} aria-hidden>
-        —
+        No data
       </div>
     );
   }
@@ -124,6 +134,8 @@ function Cell({
       onClick={() => onOpen(entry)}
       aria-label={headline(entry)}
       className={`${box} text-xs leading-tight focus-visible:outline-2 focus-visible:outline-indigo-500 ${
+        mark ? 'ring-2 ring-amber-500' : ''
+      } ${
         running ? PHASE_STYLE[s.phase!].cell : NONE_CELL
       } ${s.onSkippedWeek ? 'border border-dashed border-current' : ''}`}
     >

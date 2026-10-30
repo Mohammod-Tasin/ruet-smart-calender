@@ -79,6 +79,14 @@ export interface JourneyInput {
   until?: string;
 }
 
+/** One holiday inside one skipped week: its title and the working days of that week it covers. */
+export interface SkipReason {
+  title: string;
+  start: string;
+  end: string;
+  days: number;
+}
+
 export interface JourneyWeek {
   weekStart: string; // a Saturday
   semesterNo: number;
@@ -88,7 +96,8 @@ export interface JourneyWeek {
   /** For a SKIPPED week: the week that is waiting to be counted. */
   weekNo: number;
   status: 'COUNTED' | 'SKIPPED';
-  skipReasons: string[];
+  /** Holidays that made this week a skipped one, the one covering most working days first. */
+  skipReasons: SkipReason[];
   confirmed: boolean;
   /** Back-filled before the first admin position. */
   estimated: boolean;
@@ -96,7 +105,7 @@ export interface JourneyWeek {
 
 export interface JourneySemester {
   semesterNo: number;
-  label: string; // "২-২"
+  label: string; // "2-2"
   classStart: string | null;
   midBreakStart: string | null;
   vivaStart: string | null;
@@ -116,10 +125,8 @@ export interface Journey {
   graduation: string | null;
 }
 
-const BN = '০১২৩৪৫৬৭৮৯';
-export const bnDigits = (s: string | number) => String(s).replace(/\d/g, (d) => BN[+d]!);
-/** 1 -> "১-১", 4 -> "২-২", 8 -> "৪-২" */
-export const semesterLabel = (n: number) => bnDigits(`${Math.ceil(n / 2)}-${n % 2 ? 1 : 2}`);
+/** 1 -> "1-1", 4 -> "2-2", 8 -> "4-2" */
+export const semesterLabel = (n: number) => `${Math.ceil(n / 2)}-${n % 2 ? 1 : 2}`;
 
 const MAX_WEEKS = 600;
 
@@ -136,7 +143,17 @@ export function computeJourney(input: JourneyInput): Journey {
     const days = working(w);
     return days.length > 0 && days.every(isOffDay);
   };
-  const reasons = (w: string) => [...new Set(working(w).flatMap((d) => input.titlesOn?.(d) ?? []))];
+  const reasons = (w: string): SkipReason[] => {
+    const byTitle = new Map<string, SkipReason>();
+    for (const d of working(w)) {
+      for (const title of new Set(input.titlesOn?.(d) ?? [])) {
+        const r = byTitle.get(title);
+        if (r) Object.assign(r, { end: d, days: r.days + 1 });
+        else byTitle.set(title, { title, start: d, end: d, days: 1 });
+      }
+    }
+    return [...byTitle.values()].sort((a, b) => b.days - a.days);
+  };
 
   // Positions the structure can place. A SEMESTER_START is always CLASS week 1.
   const placed = input.positions
@@ -275,8 +292,11 @@ export interface Milestone {
 }
 
 export interface DelayReason {
-  reason: string; // holiday titles joined with " ও "
+  reason: string; // one holiday title
   weeks: number;
+  /** First and last day (of the skipped weeks) the holiday covers. */
+  start: string;
+  end: string;
 }
 
 export interface JourneyState {
@@ -293,27 +313,30 @@ export interface JourneyState {
   nextMilestone: Milestone | null;
   /** First class day of the next semester (null in the last one). `confirmed` false = "~". */
   nextSemester: { semesterNo: number; date: string; confirmed: boolean } | null;
-  /** Weeks pushed back from the current semester to graduation. */
+  /** Weeks this semester has slipped so far (skipped weeks up to the selected date). */
   delayWeeks: number;
   delayReasons: DelayReason[];
 }
 
 /**
- * Skipped weeks from `fromWeek` on, grouped into runs of consecutive weeks (one vacation = one
- * entry) and named by the distinct holiday titles in the run, joined with " ও ".
+ * Why the current semester slipped: skipped weeks of `semesterNo` that have started by `date`,
+ * one entry per holiday (the one covering most of each skipped week). Never future weeks.
  */
-export function delayReasons(j: Journey, fromWeek: string): DelayReason[] {
-  const groups: { last: string; titles: Set<string>; weeks: number }[] = [];
+export function delayReasons(j: Journey, semesterNo: number, date: string): DelayReason[] {
+  const byTitle = new Map<string, DelayReason>();
   for (const w of j.weeks) {
-    if (w.status !== 'SKIPPED' || w.skipReasons.length === 0 || w.weekStart < fromWeek) continue;
-    const g = groups[groups.length - 1];
-    if (g && addDays(g.last, 7) === w.weekStart) {
-      g.last = w.weekStart;
-      g.weeks++;
-      for (const t of w.skipReasons) g.titles.add(t);
-    } else groups.push({ last: w.weekStart, titles: new Set(w.skipReasons), weeks: 1 });
+    const top = w.skipReasons[0];
+    if (w.status !== 'SKIPPED' || !top || w.semesterNo !== semesterNo || w.weekStart > date)
+      continue;
+    const r = byTitle.get(top.title);
+    if (!r) byTitle.set(top.title, { reason: top.title, weeks: 1, start: top.start, end: top.end });
+    else {
+      r.weeks++;
+      if (top.start < r.start) r.start = top.start;
+      if (top.end > r.end) r.end = top.end;
+    }
   }
-  return groups.map((g) => ({ reason: [...g.titles].join(' ও '), weeks: g.weeks }));
+  return [...byTitle.values()].sort((a, b) => a.start.localeCompare(b.start));
 }
 
 export function stateOn(j: Journey, date: string): JourneyState {
@@ -359,8 +382,7 @@ export function stateOn(j: Journey, date: string): JourneyState {
   const nextSem = j.weeks
     .slice(i + 1)
     .find((w) => w.status === 'COUNTED' && w.semesterNo > now.semesterNo);
-  const semStart = j.weeks.find((w) => w.semesterNo === now.semesterNo)!.weekStart;
-  const reasons = delayReasons(j, semStart);
+  const reasons = delayReasons(j, now.semesterNo, date);
   return {
     status: 'RUNNING',
     semesterNo: now.semesterNo,
@@ -369,7 +391,7 @@ export function stateOn(j: Journey, date: string): JourneyState {
     weekNo: now.weekNo,
     phaseWeeks: Math.max(
       ...j.weeks
-        .filter((w) => w.semesterNo === now.semesterNo && w.block === now.block)
+        .filter((w) => w.semesterNo === now.semesterNo && w.phase === now.phase)
         .map((w) => w.weekNo),
     ),
     onSkippedWeek: now.status === 'SKIPPED',

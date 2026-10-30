@@ -59,7 +59,7 @@ describe('HIJRI', () => {
   );
 
   test('the BD offset moves every date', () => {
-    const p = SEED_RULES.find((r) => r.title === 'শব-ই-মিরাজ')!.params;
+    const p = SEED_RULES.find((r) => r.title === 'Shab-e-Meraj')!.params;
     expect(computeRuleDates(p, 2026, 0)!.startDate).toBe('2026-01-16');
     expect(computeRuleDates(p, 2026, 1)!.startDate).toBe('2026-01-17');
     expect(computeRuleDates(p, 2026, 2)!.startDate).toBe('2026-01-18');
@@ -72,12 +72,12 @@ describe('HIJRI', () => {
   });
 
   test('27 Rajab 1448 lands in Jan 2027, about 11 days before 2026', () => {
-    const p = SEED_RULES.find((r) => r.title === 'শব-ই-মিরাজ')!.params;
+    const p = SEED_RULES.find((r) => r.title === 'Shab-e-Meraj')!.params;
     expect(computeRuleDates(p, 2027, 1)!.startDate).toBe('2027-01-06');
   });
 
   test('tentative until confirmed', () => {
-    const r = rule(1, SEED_RULES.find((x) => x.title === 'শব-ই-বরাত')!.params);
+    const r = rule(1, SEED_RULES.find((x) => x.title === 'Shab-e-Barat')!.params);
     expect(resolveRuleYear(r, 2027, undefined, 1).final!.tentative).toBe(true);
     const confirmed = resolveRuleYear(r, 2027, ov(1, 2027, { confirmed: true }), 1);
     expect(confirmed.final!.tentative).toBe(false);
@@ -85,7 +85,7 @@ describe('HIJRI', () => {
   });
 
   test('an override moves the dates and skip hides the year', () => {
-    const r = rule(1, SEED_RULES.find((x) => x.title === 'শব-ই-বরাত')!.params);
+    const r = rule(1, SEED_RULES.find((x) => x.title === 'Shab-e-Barat')!.params);
     const moved = resolveRuleYear(
       r,
       2026,

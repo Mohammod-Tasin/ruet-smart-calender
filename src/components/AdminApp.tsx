@@ -12,9 +12,9 @@ import { small } from './ui';
 import { YearlyHolidays } from './YearlyHolidays';
 
 const TABS = [
-  { id: 'home', label: 'হোম' },
-  { id: 'calendar', label: 'ক্যালেন্ডার' },
-  { id: 'board', label: 'সিরিজ বোর্ড' },
+  { id: 'home', label: 'Home' },
+  { id: 'calendar', label: 'Calendar' },
+  { id: 'board', label: 'Series Board' },
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
 
@@ -46,21 +46,21 @@ function Admin({ offDays }: { offDays: number[] }) {
     router.replace('/admin/login');
   }
 
-  if (!me) return <p className="p-4 text-sm">লোড হচ্ছে…</p>;
+  if (!me) return <p className="p-4 text-sm">Loading…</p>;
 
   return (
     <main className="mx-auto max-w-5xl space-y-3 px-2 py-3 sm:px-4">
       <header className="flex items-center gap-2 px-1">
-        <h1 className="mr-auto text-xl font-bold">অ্যাডমিন</h1>
+        <h1 className="mr-auto text-xl font-bold">Admin</h1>
         <ThemeToggle />
         <span className="hidden text-sm text-zinc-600 sm:inline dark:text-zinc-400">{me.name}</span>
         <button type="button" className={small} onClick={logout}>
-          লগআউট
+          Log out
         </button>
       </header>
 
       <nav
-        aria-label="অ্যাডমিন মেনু"
+        aria-label="Admin menu"
         className="flex gap-1 border-b border-zinc-200 dark:border-zinc-800"
       >
         {TABS.map((t) => (

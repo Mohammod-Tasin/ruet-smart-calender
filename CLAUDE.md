@@ -345,6 +345,10 @@ HIJRI_BD_DAY_OFFSET=1  # added to the Saudi (umalqura) Hijri date; Bangladesh si
       old semester tables/routes/UI removed (migration 0005), `npm run db:intake`
       (`--year 2026` creates an intake; `--graduate [--apply]` marks finished series inactive).
 
+13. Simple English UI (spec `docs/phase-13-simple-ux-spec.md`): all UI text in simple English with
+    English digits, one English holiday `title`, weekly off days auto-trimmed from saved ranges
+    (server-enforced), "Set current status" task for running batches.
+
 Full reference for 9–11: `docs/phase-9-11-spec.md` (its §4 semester model is
 replaced by Phase 12).
 
@@ -383,7 +387,7 @@ replaced by Phase 12).
 `db:seed` also seeds the verified RUET 2026 list (all audience `ALL`) as rules
 (only when `holiday_rules` is empty): fixed-date days as GREGORIAN_FIXED, Islamic
 days as HIJRI with confirmed 2026 overrides, Hindu/Buddhist/summer days as
-MANUAL_YEARLY with 2026 overrides. Titles are Bengali; every Hindu puja is just
+MANUAL_YEARLY with 2026 overrides. Titles are English (a single `title` column); every Hindu puja is just
 "সনাতনী ছুটি". Full table: `docs/phase-9-11-spec.md` §7.
 
 ## 15. Series journey (Phase 12; replaces the Phase 10-11 semester model)

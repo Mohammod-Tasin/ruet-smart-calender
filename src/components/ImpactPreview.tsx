@@ -1,9 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { ImpactGroup, ProposedChange } from '@/core/journey/impact';
-import { bnDigits } from '@/core/journey/journey';
 import { api } from '@/lib/api';
-import { bnDate, PHASE_BN, seriesName } from '@/lib/journey-ui';
+import { dayText, PHASE_LABEL, seriesName, weeksText } from '@/lib/journey-ui';
 
 /** The API refuses an empty change, so a change with nothing in it counts as "no change". */
 export const hasChange = (c: ProposedChange | null): c is ProposedChange =>
@@ -43,21 +42,20 @@ export function useImpact(change: ProposedChange | null, delay = 400) {
   };
 }
 
-const weeks = (n: number) => `${bnDigits(Math.abs(n))} সপ্তাহ`;
+const weeks = (n: number) => weeksText(Math.abs(n));
 
-/** "CSE-২৩, EEE-২৩ ও আরও ২টি সিরিজের সেমিস্টার ১ সপ্তাহ পিছিয়ে যাবে" */
+/** "CSE-23, EEE-23 and 2 more: semesters will move 1 week later" */
 export function impactLine(groups: ImpactGroup[]): string {
   const labels = groups.flatMap((g) => g.labels.map(seriesName));
   const shifts = new Set(groups.map((g) => g.endShiftWeeks ?? 0));
   const names =
-    labels.slice(0, 3).join(', ') +
-    (labels.length > 3 ? ` ও আরও ${bnDigits(labels.length - 3)}টি` : '');
+    labels.slice(0, 3).join(', ') + (labels.length > 3 ? ` and ${labels.length - 3} more` : '');
   const [shift] = [...shifts];
   const what =
     shifts.size !== 1 || !shift
-      ? 'সময়সূচি বদলাবে'
-      : `সেমিস্টার ${weeks(shift)} ${shift > 0 ? 'পিছিয়ে যাবে' : 'এগিয়ে আসবে'}`;
-  return `${names} সিরিজের ${what}`;
+      ? 'the schedule will change'
+      : `the semester will move ${weeks(shift)} ${shift > 0 ? 'later' : 'earlier'}`;
+  return `${names}: ${what}`;
 }
 
 /** Full breakdown, used where the admin must confirm (yearly dates). */
@@ -72,22 +70,22 @@ export function ImpactGroups({ groups }: { groups: ImpactGroup[] }) {
               <b>{g.labels.map(seriesName).join(', ')}</b>:{' '}
               {g.endShiftWeeks
                 ? `${g.endShiftWeeks > 0 ? '+' : '−'}${weeks(g.endShiftWeeks)}`
-                : 'সময়সূচি বদলাবে'}
+                : 'schedule changes'}
               {finals?.before && finals.after && (
                 <>
                   {' '}
-                  · {PHASE_BN.EXAM} {bnDate(finals.before)} → {bnDate(finals.after)}
+                  · {PHASE_LABEL.EXAM} {dayText(finals.before)} → {dayText(finals.after)}
                 </>
               )}
             </p>
             {g.changes.length > 1 && (
               <details className="text-xs text-zinc-600 dark:text-zinc-400">
-                <summary className="cursor-pointer">সব ধাপ</summary>
+                <summary className="cursor-pointer">All stages</summary>
                 <ul className="mt-1 space-y-0.5">
                   {g.changes.map((c) => (
                     <li key={c.segment}>
-                      {PHASE_BN[c.phase]}: {c.before ? bnDate(c.before) : '—'} →{' '}
-                      {c.after ? bnDate(c.after) : '—'}
+                      {PHASE_LABEL[c.phase]}: {c.before ? dayText(c.before) : '—'} →{' '}
+                      {c.after ? dayText(c.after) : '—'}
                     </li>
                   ))}
                 </ul>
@@ -139,12 +137,12 @@ export function ImpactPreview({
       className="rounded-lg border border-sky-300 bg-sky-50 p-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-50"
     >
       {loading
-        ? 'সেমিস্টারে প্রভাব হিসাব করা হচ্ছে…'
+        ? 'Checking the effect on semesters…'
         : error
-          ? `প্রভাব দেখা যায়নি (${error})`
+          ? `Could not check the effect on semesters (${error})`
           : groups && groups.length > 0
-            ? `সেমিস্টারে প্রভাব: ${impactLine(groups)}।`
-            : 'চলমান কোনো সেমিস্টারের সময়সূচি বদলাবে না।'}
+            ? `Effect on semesters: ${impactLine(groups)}.`
+            : 'No running semester will move.'}
     </p>
   );
 }

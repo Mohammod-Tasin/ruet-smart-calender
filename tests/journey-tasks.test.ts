@@ -93,7 +93,7 @@ describe('computeTasks: next semester start date', () => {
     ).toEqual([]);
   });
 
-  test('turns overdue ("বাকি") once the projected start has passed, and sorts first', () => {
+  test('turns overdue once the projected start has passed, and sorts first', () => {
     // 2-2 break was 14 Nov, 3-1 projected 21 Nov. Today is 25 Nov: it started on its own.
     const late = series(1, 'CSE-23', 2023, journey(exam(4, 2)));
     const soon = series(2, 'CSE-24', 2024, journey(exam(2, 4, '2026-11-28')));
@@ -121,22 +121,22 @@ describe('computeTasks: next semester start date', () => {
 
 describe('computeTasks: the other tasks and priority order', () => {
   const tentative = [
-    { ruleId: 9, year: 2026, title: 'ঈদ', startDate: '2026-11-20' },
-    { ruleId: 10, year: 2027, title: 'দূরে', startDate: '2026-12-31' }, // > 30 days
-    { ruleId: 11, year: 2026, title: 'আগে', startDate: '2026-10-01' }, // past
+    { ruleId: 9, year: 2026, title: 'Eid', startDate: '2026-11-20' },
+    { ruleId: 10, year: 2027, title: 'Far', startDate: '2026-12-31' }, // > 30 days
+    { ruleId: 11, year: 2026, title: 'Past', startDate: '2026-10-01' }, // past
   ];
   const datesNeeded = [
-    { year: 2026, rules: [{ id: 1, title: 'সনাতনী ছুটি' }] },
+    { year: 2026, rules: [{ id: 1, title: 'Sanatani Holiday' }] },
     {
       year: 2027,
       rules: [
-        { id: 1, title: 'সনাতনী ছুটি' },
-        { id: 2, title: 'গ্রীষ্ম' },
+        { id: 1, title: 'Sanatani Holiday' },
+        { id: 2, title: 'Summer' },
       ],
     },
   ];
 
-  test('new batch: series with no position, grouped by intake', () => {
+  test('no data: intake >= this year is a new batch; older ones (even 2025) just need a status', () => {
     const tasks = computeTasks(
       input({
         series: [
@@ -152,9 +152,14 @@ describe('computeTasks: the other tasks and priority order', () => {
       }),
     );
     expect(tasks).toEqual([
-      { type: 'NEW_BATCH', intakeYear: 2025, seriesIds: [3], labels: ['CSE-25'] },
+      { type: 'SET_STATUS', seriesIds: [3], labels: ['CSE-25'] },
       { type: 'NEW_BATCH', intakeYear: 2026, seriesIds: [1, 2], labels: ['CSE-26', 'EEE-26'] },
     ]);
+  });
+
+  test('2025 without data never gets the 1-1 date task, not even in 2026', () => {
+    const tasks = computeTasks(input({ series: [series(3, 'CSE-25', 2025, null)] }));
+    expect(tasks).toEqual([{ type: 'SET_STATUS', seriesIds: [3], labels: ['CSE-25'] }]);
   });
 
   test('yearly dates only from Nov 1', () => {
@@ -176,7 +181,7 @@ describe('computeTasks: the other tasks and priority order', () => {
         today: '2026-11-02',
         series: [series(1, 'CSE-23', 2023, journey(exam(4, 3))), series(2, 'CSE-26', 2026, null)],
         datesNeeded,
-        tentative: [{ ruleId: 9, year: 2026, title: 'ঈদ', startDate: '2026-11-20' }],
+        tentative: [{ ruleId: 9, year: 2026, title: 'Eid', startDate: '2026-11-20' }],
       }),
     );
     expect(tasks.map((t) => t.type)).toEqual([
@@ -188,7 +193,7 @@ describe('computeTasks: the other tasks and priority order', () => {
     ]);
   });
 
-  test('nothing to do -> empty list ("সব ঠিক আছে")', () => {
+  test('nothing to do -> empty list', () => {
     expect(computeTasks(input({}))).toEqual([]);
   });
 });

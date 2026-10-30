@@ -23,7 +23,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
   const [openDate, setOpenDate] = useState<string | null>(null);
 
   const ym = parseMonthKey(params.get('m')) ? params.get('m')! : today.slice(0, 7);
-  const onlyMine = params.get('all') !== '1'; // "শুধু আমার" is on unless ?all=1
+  const onlyMine = params.get('all') !== '1'; // "Only my series" is on unless ?all=1
 
   const { structure, failed: structureFailed } = useStructure();
   const { cells, holidays, failed } = useMonthHolidays(ym, offDays);
@@ -82,7 +82,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
             checked={onlyMine}
             onChange={(e) => setParams({ all: e.target.checked ? null : '1' })}
           />
-          শুধু আমার
+          Only my series
         </label>
       )}
 
@@ -91,13 +91,13 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
           role="alert"
           className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
         >
-          <p>ছুটির তালিকা লোড করা যায়নি। ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।</p>
+          <p>Could not load the holidays. Check your internet connection and try again.</p>
           <button
             type="button"
             className="mt-2 rounded-md bg-red-700 px-3 py-1.5 font-medium text-white"
             onClick={() => window.location.reload()}
           >
-            আবার চেষ্টা করুন
+            Try again
           </button>
         </div>
       ) : (
@@ -105,8 +105,8 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
       )}
 
       <p className="px-1 text-xs text-zinc-500 dark:text-zinc-400">
-        ধূসর দাগ কাটা দিনগুলো সাপ্তাহিক ছুটি (বৃহস্পতি, শুক্র)। ডোরাকাটা বার সম্ভাব্য: চাঁদ দেখার
-        উপর নির্ভর করে। বিস্তারিত দেখতে দিনে ট্যাপ করুন।
+        Grey days: Thursday &amp; Friday. Striped bars: date depends on moon sighting. Tap a day for
+        details.
       </p>
 
       {openDate && (
@@ -114,7 +114,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
           <div className="space-y-3">
             {dayHolidays.length === 0 ? (
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                এই দিনে কোনো ছুটি নেই{filtering ? ' (আপনার সিরিজের জন্য)' : ''}।
+                No holiday on this day{filtering ? ' for your series' : ''}.
               </p>
             ) : (
               dayHolidays.map((h) => <HolidayCard key={h.id} holiday={h} />)
@@ -128,7 +128,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
                   setOpenDate(null);
                 }}
               >
-                ওই মাসে যান
+                Go to that month
               </button>
             )}
           </div>

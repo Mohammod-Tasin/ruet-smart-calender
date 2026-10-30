@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { needsTrim, trimOffDays } from '@/core/calendar/trim';
+import { describe, expect, it, test } from 'vitest';
+import { needsTrim, trimOffDays, trimRange } from '@/core/calendar/trim';
 
 const THU_FRI = [4, 5];
 
@@ -33,5 +33,38 @@ describe('trimOffDays', () => {
     expect(needsTrim({ startDate: '2027-05-13', endDate: '2027-05-19' }, THU_FRI)).toBe(true);
     expect(needsTrim({ startDate: '2027-05-15', endDate: '2027-05-21' }, THU_FRI)).toBe(true);
     expect(needsTrim({ startDate: '2027-05-15', endDate: '2027-05-19' }, THU_FRI)).toBe(false);
+  });
+});
+
+describe('trimRange (what the server saves)', () => {
+  test.each([
+    [
+      'Sanatani 15-23 Oct -> 17-21 Oct',
+      '2026-10-15',
+      '2026-10-23',
+      '2026-10-17',
+      '2026-10-21',
+      true,
+    ],
+    [
+      'CE 21 break 20-25 Sep -> 20-23 Sep',
+      '2026-09-20',
+      '2026-09-25',
+      '2026-09-20',
+      '2026-09-23',
+      true,
+    ],
+    ['Winter 17-25 Dec -> 19-23 Dec', '2026-12-17', '2026-12-25', '2026-12-19', '2026-12-23', true],
+    ['already clean', '2026-10-17', '2026-10-21', '2026-10-17', '2026-10-21', false],
+  ])('%s', (_n, s, e, ws, we, trimmed) => {
+    expect(trimRange({ startDate: s, endDate: e }, THU_FRI)).toEqual({
+      startDate: ws,
+      endDate: we,
+      trimmed,
+    });
+  });
+
+  test('only weekly off days -> null (the server answers 422)', () => {
+    expect(trimRange({ startDate: '2026-10-15', endDate: '2026-10-16' }, THU_FRI)).toBeNull();
   });
 });

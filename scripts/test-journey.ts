@@ -131,7 +131,7 @@ async function main() {
     check(
       '6. journey starts that Saturday as 2-1 class week 1, confirmed',
       journey.weeks[0]?.weekStart === SAT &&
-        journey.state.semesterLabel === '২-১' &&
+        journey.state.semesterLabel === '2-1' &&
         journey.state.phase === 'CLASS' &&
         journey.state.weekNo === 1 &&
         journey.state.confirmed === true,

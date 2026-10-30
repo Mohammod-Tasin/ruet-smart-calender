@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { bnDigits } from '@/core/journey/journey';
 import type { AudienceEntry } from '@/core/calendar/types';
 import { api, type Conflict } from '@/lib/api';
-import { bnDate } from '@/lib/journey-ui';
+import { audienceText } from '@/lib/format';
+import { rangeText } from '@/lib/journey-ui';
 
 /**
  * Debounced overlap check while the form is being filled. `setConflicts` lets the form show the
@@ -64,13 +64,13 @@ export function OverlapLine({
   const c = conflicts[0];
   return (
     <div aria-live="polite">
-      {checking && !c && <p className="text-sm text-zinc-500">মিল খুঁজছি…</p>}
+      {checking && !c && <p className="text-sm text-zinc-500">Checking for overlaps…</p>}
       {c && (
         <p className="rounded-lg border border-amber-400 bg-amber-50 p-2 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-50">
           <span aria-hidden>⚠ </span>
-          <b>{c.title}</b> আগে থেকেই আছে ({bnDigits(c.sharedLabel)}, {bnDate(c.overlap.startDate)}
-          {c.overlap.endDate !== c.overlap.startDate && `–${bnDate(c.overlap.endDate)}`})
-          {conflicts.length > 1 && ` ও আরও ${bnDigits(conflicts.length - 1)}টি`}
+          <b>{c.title}</b> is already set for {audienceText(c.sharedLabel)} (
+          {rangeText(c.overlap.startDate, c.overlap.endDate)})
+          {conflicts.length > 1 && ` and ${conflicts.length - 1} more`}
           {c.source === 'ONE_OFF' && typeof c.id === 'number' ? (
             <>
               {' '}
@@ -79,11 +79,11 @@ export function OverlapLine({
                 onClick={() => onEdit(c.id as number)}
                 className="font-medium underline"
               >
-                সেটি সম্পাদনা করুন
+                Edit that one
               </button>
             </>
           ) : (
-            ' (বছরের ছুটির তালিকায় বদলাতে হবে)'
+            ' (change it in Yearly holidays)'
           )}
         </p>
       )}

@@ -1,5 +1,6 @@
+import { todayInDhaka } from '@/core/calendar/grid';
 import {
-  bnDigits,
+  semesterLabel,
   type JourneySemester,
   type JourneyState,
   type JourneyWeek,
@@ -7,7 +8,7 @@ import {
 } from '@/core/journey/journey';
 import type { ApiStructure } from './api';
 
-// Shapes of /api/status and /api/series/[id]/journey, plus the Bengali wording for them.
+// Shapes of /api/status and /api/series/[id]/journey, plus the wording for them.
 
 export interface StatusEntry {
   seriesId: number;
@@ -40,88 +41,92 @@ export interface JourneyResponse {
   positions: PositionRow[];
 }
 
-/** "CSE-23" -> "CSE-২৩" */
-export const seriesName = (s: string) => bnDigits(s);
-/** 1 -> "১-১", 8 -> "৪-২" */
-export const semLabel = (n: number) => bnDigits(`${Math.ceil(n / 2)}-${n % 2 ? 1 : 2}`);
+/** Series are shown as "CSE-23". */
+export const seriesName = (s: string) => s;
+/** 1 -> "1-1", 8 -> "4-2" */
+export const semLabel = (n: number) => semesterLabel(n);
 
-export const PHASE_BN: Record<JPhase, string> = {
-  CLASS: 'ক্লাস',
-  MID_BREAK: 'মিড ব্রেক',
-  VIVA: 'ভাইভা',
-  EXAM: 'পরীক্ষা',
-  SEMESTER_BREAK: 'বিরতি',
+// The fixed vocabulary (docs/phase-13-simple-ux-spec.md §1). Use these everywhere.
+export const PHASE_LABEL: Record<JPhase, string> = {
+  CLASS: 'Class',
+  MID_BREAK: 'Mid-term break',
+  VIVA: 'Board Viva',
+  EXAM: 'Semester Final',
+  SEMESTER_BREAK: 'Semester break',
 };
+/** Short name used in chips and matrix cells ("Final 2/4"). */
+export const PHASE_SHORT: Record<JPhase, string> = { ...PHASE_LABEL, EXAM: 'Final' };
 
-/** "28 November" in Bengali: ২৮ নভেম্বর (with the year when `year` is set). */
-export const bnDate = (iso: string, year = false) =>
-  new Date(`${iso}T00:00:00Z`).toLocaleDateString('bn-BD', {
+/** "21 Nov", with the year ("21 Nov 2027") when it is not the current year. */
+export function dayText(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const sameYear = iso.slice(0, 4) === todayInDhaka().slice(0, 4);
+  return d.toLocaleDateString('en-GB', {
     day: 'numeric',
-    month: 'long',
-    ...(year ? { year: 'numeric' } : {}),
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
     timeZone: 'UTC',
   });
-/** "২৪ অক্টোবর", with a leading "~" when the date is only a projection. */
-export const approxDate = (iso: string, confirmed: boolean, year = false) =>
-  `${confirmed ? '' : '~'}${bnDate(iso, year)}`;
-
-const ORDINAL: Record<number, string> = { 1: '১ম', 2: '২য়', 3: '৩য়', 4: '৪র্থ', 6: '৬ষ্ঠ' };
-/** 3 -> "৩য়" */
-export const nth = (n: number) => ORDINAL[n] ?? `${bnDigits(n)}ম`;
+}
+/** "21–25 Oct", "30 Oct – 2 Nov" or "21 Oct" (one day). */
+export function rangeText(start: string, end: string): string {
+  if (start === end) return dayText(start);
+  const [a, b] = [new Date(`${start}T00:00:00Z`), new Date(`${end}T00:00:00Z`)];
+  if (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()) {
+    return `${a.getUTCDate()}–${dayText(end)}`;
+  }
+  return `${dayText(start)} – ${dayText(end)}`;
+}
+/** "around 21 Nov" while the date is only a projection. */
+export const approxDate = (iso: string, confirmed: boolean) =>
+  confirmed ? dayText(iso) : `around ${dayText(iso)}`;
 
 /** Matrix cell: 2-3 words. */
 export function cellText(s: JourneyState): string {
-  if (s.status !== 'RUNNING' || !s.phase) return '—';
-  if (s.onSkippedWeek) return 'ছুটি';
-  const w = bnDigits(s.weekNo ?? 1);
-  if (s.phase === 'CLASS') return `ক্লাস ${w}`;
-  if (s.phase === 'EXAM') return `পরীক্ষা ${w}/${bnDigits(s.phaseWeeks ?? 0)}`;
-  return PHASE_BN[s.phase];
+  if (s.status !== 'RUNNING' || !s.phase) return 'No data';
+  if (s.onSkippedWeek) return 'Holiday';
+  const w = s.weekNo ?? 1;
+  if (s.phase === 'CLASS') return `Class ${w}/${s.phaseWeeks ?? '?'}`;
+  if (s.phase === 'EXAM') return `Final ${w}/${s.phaseWeeks ?? '?'}`;
+  return PHASE_SHORT[s.phase];
 }
 
-/** Full sentence for the current phase: "পরীক্ষা চলছে (৩য় সপ্তাহ)". */
+/** Full sentence for the current phase: "Semester Final · week 2 of 4". */
 export function runningText(s: JourneyState): string {
   if (s.status !== 'RUNNING' || !s.phase) return '';
-  if (s.onSkippedWeek) return 'ছুটির সপ্তাহ';
-  const wk = ` (${nth(s.weekNo ?? 1)} সপ্তাহ)`;
-  switch (s.phase) {
-    case 'CLASS':
-      return `ক্লাস চলছে${wk}`;
-    case 'EXAM':
-      return `পরীক্ষা চলছে${wk}`;
-    case 'MID_BREAK':
-      return 'মিড ব্রেক চলছে';
-    case 'VIVA':
-      return 'ভাইভা চলছে';
-    default:
-      return 'সেমিস্টার বিরতি চলছে';
-  }
+  if (s.onSkippedWeek) return 'Holiday week';
+  const of = s.phaseWeeks ? ` of ${s.phaseWeeks}` : '';
+  if (s.phase === 'CLASS') return `Class week ${s.weekNo ?? 1}${of}`;
+  if (s.phase === 'EXAM') return `${PHASE_LABEL.EXAM} · week ${s.weekNo ?? 1}${of}`;
+  return PHASE_LABEL[s.phase];
 }
 
-/** "CSE-২৩ · ২-২ · পরীক্ষা চলছে (৩য় সপ্তাহ) · ৩-১ শুরু ~২১ নভেম্বর" */
+/** "CSE-23 · Semester 2-2 · Semester Final · week 2 of 4 · 3-1 starts around 21 Nov" */
 export function headline(e: StatusEntry): string {
   const s = e.state;
-  const parts = [seriesName(e.series)];
-  if (s.status === 'NONE') parts.push('শুরুর তারিখ এখনো দেওয়া হয়নি');
-  else if (s.status === 'BEFORE') parts.push('এখনো শুরু হয়নি');
-  else if (s.status === 'GRADUATED') parts.push('পড়াশোনা শেষ');
+  const parts = [e.series];
+  if (s.status === 'NONE') parts.push('No data yet');
+  else if (s.status === 'BEFORE') parts.push('Not started yet');
+  else if (s.status === 'GRADUATED') parts.push('Graduated');
   else {
-    if (s.semesterLabel) parts.push(s.semesterLabel);
+    if (s.semesterLabel) parts.push(`Semester ${s.semesterLabel}`);
     parts.push(runningText(s));
     if (s.nextSemester) {
       parts.push(
-        `${semLabel(s.nextSemester.semesterNo)} শুরু ${approxDate(s.nextSemester.date, s.nextSemester.confirmed)}`,
+        `${semLabel(s.nextSemester.semesterNo)} starts ${approxDate(s.nextSemester.date, s.nextSemester.confirmed)}`,
       );
     } else if (s.nextMilestone?.phase === 'GRADUATION') {
-      parts.push(`শেষ ~${bnDate(s.nextMilestone.date)}`);
+      parts.push(`Ends around ${dayText(s.nextMilestone.date)}`);
     }
   }
   return parts.filter(Boolean).join(' · ');
 }
 
-/** "শীতকালীন ছুটি +২ সপ্তাহ" */
-export const delayText = (r: { reason: string; weeks: number }) =>
-  `${r.reason} +${bnDigits(r.weeks)} সপ্তাহ`;
+/** "Sanatani Holiday (17–21 Oct)" */
+export const delayText = (r: { reason: string; start: string; end: string }) =>
+  `${r.reason} (${rangeText(r.start, r.end)})`;
+/** "1 week", "2 weeks" */
+export const weeksText = (n: number) => `${n} week${n === 1 ? '' : 's'}`;
 
 // Full class names, so Tailwind sees them.
 export const PHASE_STYLE: Record<JPhase, { cell: string; strip: string }> = {

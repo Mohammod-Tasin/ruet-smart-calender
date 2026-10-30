@@ -19,7 +19,7 @@ function detect(selected: Set<number>, st: ApiStructure): Mode | null {
 }
 
 /**
- * Who is off, in three taps: "সবাই", "ডিপার্টমেন্ট ▾" (department chips) or "সিরিজ ▾" (the full
+ * Who is off, in three taps: "Everyone", "Department ▾" (department chips) or "Series ▾" (the full
  * faculty > department > series tree, only when asked for). The value is still a set of series ids.
  */
 export function AudienceChips({
@@ -72,11 +72,11 @@ export function AudienceChips({
 
   return (
     <fieldset className="space-y-3">
-      <legend className="mb-1 text-sm font-medium">কারা ছুটিতে?</legend>
+      <legend className="mb-1 text-sm font-medium">Who is off?</legend>
       <div className="flex flex-wrap gap-2">
-        {chip('ALL', 'সবাই')}
-        {chip('DEPT', 'ডিপার্টমেন্ট ▾')}
-        {chip('SERIES', 'সিরিজ ▾')}
+        {chip('ALL', 'Everyone')}
+        {chip('DEPT', 'Department ▾')}
+        {chip('SERIES', 'Series ▾')}
       </div>
       {mode === 'DEPT' &&
         structure.faculties.map((f) => {
@@ -105,8 +105,8 @@ export function AudienceChips({
           structure={structure}
           selected={selected}
           onChange={onChange}
-          legend="সিরিজ বেছে নিন"
-          allLabel="সব সিরিজ"
+          legend="Pick series"
+          allLabel="All series"
         />
       )}
     </fieldset>

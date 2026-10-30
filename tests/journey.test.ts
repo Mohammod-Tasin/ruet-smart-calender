@@ -78,10 +78,10 @@ describe('weekStartOf / labels / slots', () => {
   ])('%s -> %s', (d, want) => expect(weekStartOf(d)).toBe(want));
 
   test.each([
-    [1, '১-১'],
-    [2, '১-২'],
-    [4, '২-২'],
-    [8, '৪-২'],
+    [1, '1-1'],
+    [2, '1-2'],
+    [4, '2-2'],
+    [8, '4-2'],
   ])('semester %i -> %s', (n, want) => expect(semesterLabel(n)).toBe(want));
 
   test('one semester is 20 weeks; CLASS counts 1..13 across the mid break', () => {
@@ -105,7 +105,10 @@ describe('the CSE-23 example (real 2026 rules)', () => {
       status: 'COUNTED',
       estimated: true,
     });
-    expect(at(j, '2026-10-17')).toMatchObject({ status: 'SKIPPED', skipReasons: ['সনাতনী ছুটি'] });
+    expect(at(j, '2026-10-17')).toMatchObject({
+      status: 'SKIPPED',
+      skipReasons: [expect.objectContaining({ title: 'Sanatani Holiday' })],
+    });
     expect(j.semesters[0]).toMatchObject({ semesterNo: 4, examStart: '2026-10-10' });
   });
 
@@ -123,7 +126,7 @@ describe('the CSE-23 example (real 2026 rules)', () => {
     expect(at(j, '2026-11-21')).toMatchObject({ phase: 'CLASS', weekNo: 1, semesterNo: 5 });
     expect(j.semesters[1]).toMatchObject({
       semesterNo: 5,
-      label: '৩-১',
+      label: '3-1',
       classStart: '2026-11-21',
       confirmed: false,
     });
@@ -143,7 +146,7 @@ describe('the CSE-23 example (real 2026 rules)', () => {
     expect(s).toMatchObject({
       status: 'RUNNING',
       semesterNo: 4,
-      semesterLabel: '২-২',
+      semesterLabel: '2-2',
       phase: 'EXAM',
       weekNo: 2,
       confirmed: true,
@@ -154,10 +157,12 @@ describe('the CSE-23 example (real 2026 rules)', () => {
       date: '2026-11-14',
       semesterNo: 4,
     });
-    // 3-1 CLASS week 1 is 21 Nov (spec §4): the headline's "৩-১ শুরু ~২১ নভেম্বর".
+    // 3-1 CLASS week 1 is 21 Nov (spec §4): the headline's "3-1 starts around 21 Nov".
     expect(s.nextSemester).toEqual({ semesterNo: 5, date: '2026-11-21', confirmed: false });
-    const winter = s.delayReasons.find((r) => r.reason === 'শীতকালীন ছুটি');
-    expect(winter?.weeks).toBe(2);
+    // Only this semester up to today: the Oct holiday, never the winter vacation months away.
+    expect(s.delayReasons).toEqual([
+      { reason: 'Sanatani Holiday', weeks: 1, start: '2026-10-17', end: '2026-10-21' },
+    ]);
     expect(s.delayWeeks).toBe(s.delayReasons.reduce((n, r) => n + r.weeks, 0));
   });
 
@@ -280,7 +285,7 @@ describe('the whole programme', () => {
     const j = run([start('2026-10-03')]);
     expect(j.semesters.map((s) => s.semesterNo)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(j.semesters[0]).toMatchObject({
-      label: '১-১',
+      label: '1-1',
       classStart: '2026-10-03',
       midBreakStart: '2026-11-21',
       vivaStart: '2027-01-09',
@@ -314,7 +319,9 @@ describe('the whole programme', () => {
       (w) => w.status === 'SKIPPED' && w.weekStart >= '2027-01-30' && w.weekStart <= '2027-04-30',
     );
     expect(ramadan.length).toBeGreaterThanOrEqual(3);
-    expect(ramadan.some((w) => w.skipReasons.includes('পবিত্র রমজানের অবকাশ'))).toBe(true);
+    expect(ramadan.some((w) => w.skipReasons.some((r) => r.title === 'Ramadan Vacation'))).toBe(
+      true,
+    );
     expect(ramadan.every((w) => !w.confirmed)).toBe(true); // projected, not confirmed
     expect(withRamadan.graduation! > without.graduation!).toBe(true);
   });
@@ -329,12 +336,27 @@ describe('the whole programme', () => {
 });
 
 describe('delayReasons', () => {
-  test('consecutive skipped weeks of one vacation are one entry named by its holidays', () => {
-    const j = run([start('2026-10-03')], {
-      isOffDay: (d) => d >= '2026-10-10' && d <= '2026-10-21',
-      titlesOn: (d) => (d <= '2026-10-14' ? ['A'] : ['B']),
-    });
-    expect(delayReasons(j, '2026-10-01')).toEqual([{ reason: 'A ও B', weeks: 2 }]);
+  const j = run([start('2026-10-03', 4)], {
+    isOffDay: (d) => d >= '2026-10-10' && d <= '2026-10-28',
+    // A covers Sat-Sun-Mon of the first week (3 working days), B the rest; B covers most of week 2.
+    titlesOn: (d) => (d <= '2026-10-12' ? ['A'] : ['B']),
+  });
+
+  test('one line per holiday, named by the holiday that covers most of each week', () => {
+    const r = delayReasons(j, 4, '2026-12-31');
+    expect(r.map((x) => [x.reason, x.weeks])).toEqual([
+      ['A', 1],
+      ['B', 2],
+    ]);
+  });
+
+  test('only weeks that have started by the selected date', () => {
+    expect(delayReasons(j, 4, '2026-10-09')).toEqual([]);
+    expect(delayReasons(j, 4, '2026-10-10').map((x) => x.reason)).toEqual(['A']);
+  });
+
+  test('only the given semester', () => {
+    expect(delayReasons(j, 5, '2030-01-01')).toEqual([]);
   });
 });
 

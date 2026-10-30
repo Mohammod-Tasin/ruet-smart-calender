@@ -4,7 +4,7 @@ import { audienceFromSeries } from '@/core/calendar/audience';
 import { coveredSeriesIds } from '@/core/calendar/compress';
 import { isRealDate } from '@/core/validation/holidays-query';
 import { api, type ApiStructure, type FullHoliday } from '@/lib/api';
-import { stamp } from '@/lib/format';
+import { stamp, trimNote } from '@/lib/format';
 import { AudienceChips } from './AudienceChips';
 import { ImpactPreview } from './ImpactPreview';
 import { OverlapLine, useOverlap } from './OverlapLine';
@@ -82,7 +82,7 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
           end: h.endDate,
           selected: coveredSeriesIds(h.audience, rest.structure),
           excludeId: h.id,
-          setBy: `তৈরি: ${h.createdBy.name} · ${stamp(h.createdAt)}। সর্বশেষ সম্পাদনা: ${h.updatedBy.name} · ${stamp(h.updatedAt)}।`,
+          setBy: `Created by ${h.createdBy.name} on ${stamp(h.createdAt)}. Last edited by ${h.updatedBy.name} on ${stamp(h.updatedAt)}.`,
         }}
       />
     );
@@ -93,11 +93,11 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
       </p>
     );
   } else {
-    body = <p className="text-sm">লোড হচ্ছে…</p>;
+    body = <p className="text-sm">Loading…</p>;
   }
 
   return (
-    <Sheet title={target.kind === 'new' ? 'ছুটি দিন' : 'ছুটি সম্পাদনা'} onClose={rest.onClose}>
+    <Sheet title={target.kind === 'new' ? 'Add holiday' : 'Edit holiday'} onClose={rest.onClose}>
       {body}
     </Sheet>
   );
@@ -142,9 +142,9 @@ function HolidayForm({
 
   async function save() {
     setError(null);
-    if (!title.trim()) return setError('শিরোনাম লিখুন।');
-    if (!datesOk) return setError('শুরু ও শেষের সঠিক তারিখ দিন (শেষ তারিখ শুরুর আগে হবে না)।');
-    if (audience.length === 0) return setError('কারা ছুটিতে তা বেছে নিন।');
+    if (!title.trim()) return setError('Enter a title.');
+    if (!datesOk) return setError('Enter valid From and To dates (To cannot be before From).');
+    if (audience.length === 0) return setError('Choose who is off.');
 
     const confirmOverlap = shown.length > 0 ? true : undefined;
     const editing = initial.excludeId !== undefined;
@@ -171,7 +171,7 @@ function HolidayForm({
       if (start !== initial.start) patch.startDate = start;
       if (end !== initial.end) patch.endDate = end;
       if (!sameSet(selected, initial.selected)) patch.audience = audience;
-      if (Object.keys(patch).length === 0) return onDone('বদলানোর মতো কিছু নেই।');
+      if (Object.keys(patch).length === 0) return onDone('Nothing to change.');
       request = api(`/api/admin/holidays/${initial.excludeId}`, {
         method: 'PATCH',
         body: { ...patch, confirmOverlap },
@@ -180,12 +180,17 @@ function HolidayForm({
     setSaving(true);
     const r = await request;
     setSaving(false);
-    if (r.ok) return onDone(editing ? 'ছুটি বদলানো হয়েছে।' : 'ছুটি যোগ হয়েছে।');
+    if (r.ok) {
+      const trimmed = (r.data as { trimmed?: { startDate: string; endDate: string } } | null)
+        ?.trimmed;
+      const done = editing ? 'Holiday updated.' : 'Holiday added.';
+      return onDone(trimmed ? `${done} ${trimNote(trimmed, offDays)}` : done);
+    }
     if (r.code === 'OVERLAP' && r.conflicts) {
       setConflicts(r.conflicts);
-      return setError('অন্য ছুটির সাথে মিলে যাচ্ছে। দেখে নিয়ে "তবুও সংরক্ষণ" চাপুন।');
+      return setError('This overlaps another holiday. Check it, then press "Save anyway".');
     }
-    setError(r.status === 401 ? 'সেশন শেষ হয়ে গেছে। আবার লগইন করুন।' : r.message);
+    setError(r.status === 401 ? 'Your session expired. Please sign in again.' : r.message);
   }
 
   return (
@@ -197,7 +202,7 @@ function HolidayForm({
       className="space-y-4"
     >
       <label className="block text-sm font-medium">
-        শিরোনাম
+        Title
         <input
           className={field}
           value={title}
@@ -207,7 +212,7 @@ function HolidayForm({
         />
       </label>
       <label className="block text-sm font-medium">
-        নোট <span className="font-normal text-zinc-500">(কারণ; সবাই দেখবে)</span>
+        Note <span className="font-normal text-zinc-500">(optional; everyone can see it)</span>
         <textarea
           className={field}
           rows={2}
@@ -223,11 +228,11 @@ function HolidayForm({
           checked={classesOnly}
           onChange={(e) => setClassesOnly(e.target.checked)}
         />
-        শুধু ক্লাস বন্ধ <span className="text-zinc-500">(classes closed, offices open)</span>
+        Classes off only <span className="text-zinc-500">(offices stay open)</span>
       </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm font-medium">
-          শুরু
+          From
           <input
             type="date"
             className={field}
@@ -237,7 +242,7 @@ function HolidayForm({
           />
         </label>
         <label className="block text-sm font-medium">
-          শেষ
+          To
           <input
             type="date"
             className={field}
@@ -248,15 +253,7 @@ function HolidayForm({
           />
         </label>
       </div>
-      <TrimHint
-        start={start}
-        end={end}
-        offDays={offDays}
-        onTrim={(r) => {
-          setStart(r.startDate);
-          setEnd(r.endDate);
-        }}
-      />
+      <TrimHint start={start} end={end} offDays={offDays} />
 
       <AudienceChips structure={structure} selected={selected} onChange={setSelected} />
 
@@ -276,7 +273,7 @@ function HolidayForm({
           disabled={saving}
           className={`rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${shown.length ? 'bg-amber-600' : 'bg-indigo-600'}`}
         >
-          {saving ? 'সংরক্ষণ হচ্ছে…' : shown.length ? 'তবুও সংরক্ষণ' : 'সংরক্ষণ'}
+          {saving ? 'Saving…' : shown.length ? 'Save anyway' : 'Save'}
         </button>
         <button
           type="button"
@@ -284,7 +281,7 @@ function HolidayForm({
           onClick={onClose}
           className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium disabled:opacity-60 dark:border-zinc-700"
         >
-          বাতিল
+          Cancel
         </button>
       </div>
     </form>

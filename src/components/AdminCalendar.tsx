@@ -70,7 +70,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
     setBusyId(null);
     setConfirmId(null);
     if (r.ok) {
-      toast(`"${h.title}" মুছে ফেলা হয়েছে। নিচের তালিকা থেকে ফিরিয়ে আনা যাবে।`);
+      toast(`"${h.title}" deleted. You can restore it from Recently deleted below.`);
       refresh();
     } else {
       toast(r.message, 'error');
@@ -88,8 +88,8 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
     const n = r.data.conflicts.length;
     toast(
       n
-        ? `"${h.title}" ফিরিয়ে আনা হয়েছে, তবে আরও ${n}টি ছুটির সাথে মিলে গেছে।`
-        : `"${h.title}" ফিরিয়ে আনা হয়েছে।`,
+        ? `"${h.title}" restored, but it overlaps ${n} other ${n === 1 ? 'holiday' : 'holidays'}.`
+        : `"${h.title}" restored.`,
       n ? 'warn' : 'success',
     );
     refresh();
@@ -109,10 +109,10 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
       />
       <div className="flex flex-wrap items-center gap-2 px-1 text-sm">
         <p className="mr-auto text-zinc-600 dark:text-zinc-400">
-          যেকোনো দিনে ট্যাপ করুন। ছুটি বা বারে ট্যাপ করলে সম্পাদনা, মোছা ও ইতিহাস।
+          Tap any day. Tap a holiday to edit, delete or see its history.
         </p>
         <Link href={yearlyHref(Number(today.slice(0, 4)))} className={small}>
-          বছরের ছুটির তালিকা
+          Yearly holidays
         </Link>
       </div>
 
@@ -121,9 +121,9 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
           role="alert"
           className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
         >
-          ছুটির তালিকা লোড করা যায়নি।{' '}
+          Could not load the holidays.{' '}
           <button type="button" className="underline" onClick={refresh}>
-            আবার চেষ্টা করুন
+            Try again
           </button>
         </div>
       ) : (
@@ -132,11 +132,13 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
 
       <details className="rounded-lg border border-zinc-200 dark:border-zinc-800">
         <summary className="cursor-pointer px-3 py-2 font-semibold">
-          সম্প্রতি মোছা ({deleted.length})
+          Recently deleted ({deleted.length})
         </summary>
         <div className="grid gap-2 p-2 md:grid-cols-2">
           {deleted.length === 0 && (
-            <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">কিছু মোছা হয়নি।</p>
+            <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Nothing has been deleted.
+            </p>
           )}
           {deleted.map((h) => (
             <HolidayCard
@@ -150,14 +152,14 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                     disabled={busyId === h.id}
                     onClick={() => restore(h)}
                   >
-                    {busyId === h.id ? 'ফিরছে…' : 'ফিরিয়ে আনুন'}
+                    {busyId === h.id ? 'Restoring…' : 'Restore'}
                   </button>
                   <button
                     type="button"
                     className={small}
                     onClick={() => setHistoryOf({ id: h.id, title: h.title })}
                   >
-                    ইতিহাস
+                    History
                   </button>
                 </>
               }
@@ -175,18 +177,18 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                 className={`${primary} py-3`}
                 onClick={() => openEditor({ kind: 'new', start: dialog.date, end: dialog.date })}
               >
-                ছুটি দিন
+                Add holiday
               </button>
               <button
                 type="button"
                 className={`${small} py-3 text-base`}
                 onClick={() => setDialog({ kind: 'suspend', date: dialog.date })}
               >
-                এই সপ্তাহ স্থগিত
+                Suspend classes this week
               </button>
             </div>
             {dayHolidays.length === 0 ? (
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">এই দিনে কোনো ছুটি নেই।</p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">No holiday on this day.</p>
             ) : (
               dayHolidays.map((h) => {
                 const id = h.id;
@@ -200,11 +202,11 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                           href={yearlyHref(h.year ?? Number(dialog.date.slice(0, 4)))}
                           className={small}
                         >
-                          বছরের তালিকায় বদলান
+                          Change in Yearly holidays
                         </Link>
                       ) : confirmId === id ? (
                         <>
-                          <span className="self-center text-sm">মুছে ফেলবেন?</span>
+                          <span className="self-center text-sm">Delete it?</span>
                           <div className="basis-full">
                             <ImpactPreview change={{ removeIds: [id] }} />
                           </div>
@@ -214,7 +216,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                             className={`${small} border-red-700 bg-red-700 text-white hover:bg-red-800`}
                             onClick={() => remove({ id, title: h.title })}
                           >
-                            {busyId === id ? 'মুছছে…' : 'হ্যাঁ, মুছুন'}
+                            {busyId === id ? 'Deleting…' : 'Yes, delete'}
                           </button>
                           <button
                             type="button"
@@ -222,7 +224,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                             disabled={busyId === id}
                             onClick={() => setConfirmId(null)}
                           >
-                            বাতিল
+                            Cancel
                           </button>
                         </>
                       ) : (
@@ -232,17 +234,17 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                             className={small}
                             onClick={() => openEditor({ kind: 'edit', id })}
                           >
-                            সম্পাদনা
+                            Edit
                           </button>
                           <button
                             type="button"
                             className={small}
                             onClick={() => setHistoryOf({ id, title: h.title })}
                           >
-                            ইতিহাস
+                            History
                           </button>
                           <button type="button" className={small} onClick={() => setConfirmId(id)}>
-                            মুছুন
+                            Delete
                           </button>
                         </>
                       )
@@ -290,28 +292,28 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
 export const yearlyHref = (year: number) => `/admin?tab=calendar&view=yearly&year=${year}`;
 
 const FIELDS = ['title', 'note', 'startDate', 'endDate', 'classesOnly'] as const;
-const FIELD_BN: Record<string, string> = {
-  title: 'শিরোনাম',
-  note: 'নোট',
-  startDate: 'শুরুর তারিখ',
-  endDate: 'শেষের তারিখ',
-  classesOnly: 'শুধু ক্লাস বন্ধ',
+const FIELD_LABEL: Record<string, string> = {
+  title: 'title',
+  note: 'note',
+  startDate: 'start date',
+  endDate: 'end date',
+  classesOnly: 'classes off only',
 };
 
 function describe(e: AuditEntry): string {
   if (e.action !== 'UPDATE') {
     return {
-      CREATE: 'তৈরি করা হয়েছে',
-      DELETE: 'মুছে ফেলা হয়েছে',
-      RESTORE: 'ফিরিয়ে আনা হয়েছে',
+      CREATE: 'Created',
+      DELETE: 'Deleted',
+      RESTORE: 'Restored',
       UPDATE: '',
     }[e.action];
   }
   const b = e.before ?? {};
   const a = e.after ?? {};
-  const changed = FIELDS.filter((f) => b[f] !== a[f]).map((f) => FIELD_BN[f]!);
-  if (JSON.stringify(b.audience) !== JSON.stringify(a.audience)) changed.push('কারা ছুটিতে');
-  return `বদলানো হয়েছে: ${changed.join(', ') || 'বিস্তারিত'}`;
+  const changed = FIELDS.filter((f) => b[f] !== a[f]).map((f) => FIELD_LABEL[f]!);
+  if (JSON.stringify(b.audience) !== JSON.stringify(a.audience)) changed.push('who is off');
+  return `Changed: ${changed.join(', ') || 'details'}`;
 }
 
 function HistorySheet({
@@ -329,9 +331,9 @@ function HistorySheet({
   }, [holiday.id]);
 
   return (
-    <Sheet title={`ইতিহাস: ${holiday.title}`} onClose={onClose}>
+    <Sheet title={`History: ${holiday.title}`} onClose={onClose}>
       {!res ? (
-        <p className="text-sm">লোড হচ্ছে…</p>
+        <p className="text-sm">Loading…</p>
       ) : res.error ? (
         <p role="alert" className="text-sm text-red-700 dark:text-red-400">
           {res.error}
@@ -351,7 +353,7 @@ function HistorySheet({
                 </p>
                 {overlaps && overlaps.length > 0 && (
                   <p className="text-xs text-amber-700 dark:text-amber-400">
-                    মিল থাকা সত্ত্বেও সংরক্ষণ: {overlaps.map((id) => `#${id}`).join(', ')}
+                    Saved despite overlap with: {overlaps.map((id) => `#${id}`).join(', ')}
                   </p>
                 )}
               </li>

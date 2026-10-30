@@ -1,6 +1,5 @@
 'use client';
 import { useState } from 'react';
-import { bnDigits } from '@/core/journey/journey';
 import type { ApiStructure } from '@/lib/api';
 import { findSeries, headline, type StatusEntry } from '@/lib/journey-ui';
 import { setMySeries, useMySeries } from '@/lib/my-series';
@@ -9,8 +8,10 @@ import { Sheet } from './Sheet';
 import { small } from './ui';
 
 /**
- * "আমার সিরিজ": picks the visitor's department + intake (kept in this browser) and, once set,
- * shows the one-line status above both public tabs. `entry` is that series' state on `date`.
+ * "My series": the visitor's department + batch (kept in this browser). Before it is set, a small
+ * card with two selects (picking the batch saves it, so the status is two taps away); after, a
+ * one-line status strip above both public tabs with a "Change" button. `entry` is that series'
+ * state on `date`.
  */
 export function MySeriesBar({
   structure,
@@ -26,6 +27,17 @@ export function MySeriesBar({
   const [open, setOpen] = useState(false);
   const seriesId = structure && mine ? findSeries(structure, mine.dept, mine.year)?.id : undefined;
 
+  if (structure && !mine) {
+    return (
+      <section className="mx-1 space-y-2 rounded-lg border border-indigo-300 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-950">
+        <p className="text-sm font-medium">
+          Pick your series to see your holidays and semester status
+        </p>
+        <SeriesSelects structure={structure} />
+      </section>
+    );
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2 px-1">
       {seriesId && entry ? (
@@ -37,9 +49,7 @@ export function MySeriesBar({
           {headline(entry)}
         </button>
       ) : (
-        <p className="min-w-0 flex-1 text-sm text-zinc-600 dark:text-zinc-400">
-          {seriesId ? 'লোড হচ্ছে…' : 'আপনার সিরিজ বেছে নিলে এখানে সেমিস্টারের অবস্থা দেখাবে।'}
-        </p>
+        <p className="min-w-0 flex-1 text-sm text-zinc-600 dark:text-zinc-400">Loading…</p>
       )}
       <button
         type="button"
@@ -47,10 +57,24 @@ export function MySeriesBar({
         disabled={!structure}
         onClick={() => setPicking(true)}
       >
-        {mine ? 'সিরিজ বদলান' : 'আমার সিরিজ'}
+        Change
       </button>
       {picking && structure && (
-        <PickerSheet structure={structure} onClose={() => setPicking(false)} />
+        <Sheet title="My series" onClose={() => setPicking(false)}>
+          <div className="space-y-4">
+            <SeriesSelects structure={structure} onDone={() => setPicking(false)} />
+            <button
+              type="button"
+              className="text-sm underline"
+              onClick={() => {
+                setMySeries(null);
+                setPicking(false);
+              }}
+            >
+              Forget my series
+            </button>
+          </div>
+        </Sheet>
       )}
       {open && seriesId && (
         <SeriesSheet seriesId={seriesId} date={date} onClose={() => setOpen(false)} />
@@ -59,67 +83,52 @@ export function MySeriesBar({
   );
 }
 
-function PickerSheet({ structure, onClose }: { structure: ApiStructure; onClose: () => void }) {
+const selectClass =
+  'mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900';
+
+/** Department select, then batch select; choosing the batch saves. */
+function SeriesSelects({ structure, onDone }: { structure: ApiStructure; onDone?: () => void }) {
   const mine = useMySeries();
   const [dept, setDept] = useState(mine?.dept ?? '');
   const d = structure.departments.find((x) => x.code === dept);
   const years = structure.series
     .filter((s) => s.departmentId === d?.id)
     .map((s) => s.intakeYear)
-    .sort((a, b) => b - a);
+    .sort((a, b) => a - b);
 
   return (
-    <Sheet title="আমার সিরিজ" onClose={onClose}>
-      <div className="space-y-4">
-        <label className="block text-sm font-medium">
-          ডিপার্টমেন্ট
-          <select
-            value={dept}
-            onChange={(e) => setDept(e.target.value)}
-            className="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <option value="">বেছে নিন</option>
-            {structure.departments.map((x) => (
-              <option key={x.id} value={x.code}>
-                {x.code}
-              </option>
-            ))}
-          </select>
-        </label>
-        {d && (
-          <fieldset>
-            <legend className="mb-1 text-sm font-medium">কোন সিরিজ?</legend>
-            <div className="flex flex-wrap gap-2">
-              {years.map((y) => (
-                <button
-                  key={y}
-                  type="button"
-                  aria-pressed={mine?.dept === dept && mine.year === y}
-                  className={`${small} px-3 py-2 ${mine?.dept === dept && mine.year === y ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950' : ''}`}
-                  onClick={() => {
-                    setMySeries({ dept, year: y });
-                    onClose();
-                  }}
-                >
-                  {bnDigits(y)}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-        )}
-        {mine && (
-          <button
-            type="button"
-            className="text-sm underline"
-            onClick={() => {
-              setMySeries(null);
-              onClose();
-            }}
-          >
-            আমার সিরিজ মুছে ফেলুন
-          </button>
-        )}
-      </div>
-    </Sheet>
+    <div className="grid grid-cols-2 gap-3">
+      <label className="block text-sm font-medium">
+        Department
+        <select value={dept} onChange={(e) => setDept(e.target.value)} className={selectClass}>
+          <option value="">Choose</option>
+          {structure.departments.map((x) => (
+            <option key={x.id} value={x.code}>
+              {x.code}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block text-sm font-medium">
+        Batch
+        <select
+          disabled={!d}
+          value={mine?.dept === dept ? (mine.year ?? '') : ''}
+          onChange={(e) => {
+            if (!e.target.value) return;
+            setMySeries({ dept, year: Number(e.target.value) });
+            onDone?.();
+          }}
+          className={selectClass}
+        >
+          <option value="">Choose</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
   );
 }

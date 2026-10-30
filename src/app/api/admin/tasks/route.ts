@@ -6,7 +6,7 @@ import { listTasks } from '@/server/services/journey';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// "করণীয়": generated from the journeys, never stored.
+// The admin to-do list: generated from the journeys, never stored.
 export async function GET(req: Request) {
   const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;

@@ -1,5 +1,7 @@
 import 'server-only';
 import { inArray, sql } from 'drizzle-orm';
+import { parseOffDays } from '@/core/calendar/grid';
+import { trimRange as trimRangeCore, type DateRange } from '@/core/calendar/trim';
 import type { AudienceEntry, Structure } from '@/core/calendar/types';
 import type { Executor, Tx } from '@/server/db/client';
 import { auditLog, series } from '@/server/db/schema';
@@ -74,3 +76,8 @@ export const auditEntity = (
   before: unknown,
   after: unknown,
 ) => tx.insert(auditLog).values({ adminId, action, entityType, entityId, before, after });
+
+/** Server-side trim of weekly off days (Thu/Fri) from a range before it is saved. */
+export const trimRange = (r: DateRange) =>
+  trimRangeCore(r, parseOffDays(process.env.WEEKLY_OFF_DAYS));
+export const ALL_WEEKLY_OFF = 'Those days are all weekly holidays (Thursday and Friday).';

@@ -23,3 +23,12 @@ export function trimOffDays(r: DateRange, offDays: number[]): DateRange | null {
   }
   return startDate <= endDate ? { startDate, endDate } : null;
 }
+
+/** trimOffDays plus whether anything changed; null when the whole range is weekly off days. */
+export function trimRange(
+  r: DateRange,
+  offDays: number[],
+): (DateRange & { trimmed: boolean }) | null {
+  const t = trimOffDays(r, offDays);
+  return t && { ...t, trimmed: t.startDate !== r.startDate || t.endDate !== r.endDate };
+}

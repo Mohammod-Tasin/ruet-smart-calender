@@ -9,7 +9,7 @@ export const CATEGORY_STYLE: Record<Category, { label: string; solid: string; te
     text: 'text-red-700 dark:text-red-300',
   },
   SUSPENDED_WEEK: {
-    label: 'স্থগিত',
+    label: 'Class Suspension',
     solid: 'bg-slate-500 dark:bg-slate-600',
     text: 'text-slate-700 dark:text-slate-300',
   },

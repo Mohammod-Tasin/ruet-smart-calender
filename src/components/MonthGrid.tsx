@@ -4,7 +4,7 @@ import { holidaysByDate, type GridCell } from '@/core/calendar/grid';
 import { layoutWeek } from '@/core/calendar/lanes';
 import { categoryStyle } from '@/lib/categories';
 import type { PublicHoliday } from '@/lib/api';
-import { dateRange, longDate } from '@/lib/format';
+import { audienceText, dateRange, longDate } from '@/lib/format';
 
 const WEEKDAYS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 const STRIPES =
@@ -30,7 +30,7 @@ function ariaLabel(c: GridCell, isToday: boolean, list: PublicHoliday[]) {
   if (c.isOff) s += ', weekly off day';
   if (list.length > 0) {
     s += `. ${list.length === 1 ? '1 holiday' : `${list.length} holidays`}: `;
-    s += list.map((h) => `${h.title} (${h.label})`).join('; ');
+    s += list.map((h) => `${h.title} (${audienceText(h.label)})`).join('; ');
   }
   return s;
 }
@@ -129,12 +129,12 @@ export function MonthGrid({
                       const h = b.item;
                       const start = h.startDate < dates[0]! ? dates[0]! : h.startDate;
                       const style = categoryStyle(h.category);
-                      const text = `${b.continuesLeft ? '◂ ' : ''}${h.label} · ${h.title}${b.continuesRight ? ' ▸' : ''}`;
+                      const text = `${b.continuesLeft ? '◂ ' : ''}${audienceText(h.label)} · ${h.category === 'SUSPENDED_WEEK' ? 'Classes suspended' : h.title}${b.continuesRight ? ' ▸' : ''}`;
                       return (
                         <button
                           key={h.id}
                           type="button"
-                          aria-label={`${h.title}, ${h.label}, ${dateRange(h.startDate, h.endDate)}${h.tentative ? ', tentative' : ''}`}
+                          aria-label={`${h.title}, ${audienceText(h.label)}, ${dateRange(h.startDate, h.endDate)}${h.tentative ? ', expected date' : ''}`}
                           onClick={() => onCell(start, h.id)}
                           onPointerDown={(e) => e.stopPropagation()}
                           style={{

@@ -4,8 +4,8 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useSyncExternalStore } from 'react';
 
 const TABS = [
-  { href: '/', label: 'ক্যালেন্ডার' },
-  { href: '/status', label: 'স্ট্যাটাস' },
+  { href: '/', label: 'Calendar' },
+  { href: '/status', label: 'Semester Status' },
 ];
 
 const key = (path: string) => `tab-query:${path}`;
@@ -45,7 +45,7 @@ export function TopNav() {
 
   return (
     <nav
-      aria-label="প্রধান মেনু"
+      aria-label="Main menu"
       className="flex gap-1 border-b border-zinc-200 dark:border-zinc-800"
     >
       {TABS.map((t) => {

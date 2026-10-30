@@ -4,7 +4,7 @@ import { audienceFromSeries } from '@/core/calendar/audience';
 import { addDays } from '@/core/calendar/hijri';
 import { weekStartOf } from '@/core/journey/journey';
 import { api, type ApiStructure } from '@/lib/api';
-import { bnDate } from '@/lib/journey-ui';
+import { dayText } from '@/lib/journey-ui';
 import { AudienceChips } from './AudienceChips';
 import { ImpactPreview } from './ImpactPreview';
 import { OverlapLine, useOverlap } from './OverlapLine';
@@ -12,7 +12,7 @@ import { Sheet } from './Sheet';
 import { field, primary, small } from './ui';
 
 /**
- * "এই সপ্তাহ স্থগিত": a Saturday-Wednesday week with no classes for some audience. It is an
+ * "Suspend classes this week": a Saturday-Wednesday week with no classes for some audience. It is an
  * ordinary holiday with category SUSPENDED_WEEK, so the journey engine needs no special case.
  */
 export function SuspendSheet({
@@ -31,7 +31,7 @@ export function SuspendSheet({
 }) {
   const start = weekStartOf(date);
   const end = addDays(start, 4); // Wednesday
-  const [title, setTitle] = useState('ক্লাস স্থগিত');
+  const [title, setTitle] = useState('Class Suspension');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,8 +46,8 @@ export function SuspendSheet({
 
   async function save() {
     setError(null);
-    if (!title.trim()) return setError('শিরোনাম লিখুন।');
-    if (!ready) return setError('কারা ছুটিতে তা বেছে নিন।');
+    if (!title.trim()) return setError('Enter a title.');
+    if (!ready) return setError('Choose who is off.');
     setSaving(true);
     const r = await api('/api/admin/holidays', {
       method: 'POST',
@@ -61,16 +61,16 @@ export function SuspendSheet({
       },
     });
     setSaving(false);
-    if (r.ok) return onDone('সপ্তাহটি স্থগিত করা হয়েছে।');
+    if (r.ok) return onDone('Classes suspended for the week.');
     if (r.code === 'OVERLAP' && r.conflicts) {
       setConflicts(r.conflicts);
-      return setError('অন্য ছুটির সাথে মিলে যাচ্ছে। দেখে নিয়ে "তবুও সংরক্ষণ" চাপুন।');
+      return setError('This overlaps another holiday. Check it, then press "Save anyway".');
     }
-    setError(r.status === 401 ? 'সেশন শেষ হয়ে গেছে। আবার লগইন করুন।' : r.message);
+    setError(r.status === 401 ? 'Your session expired. Please sign in again.' : r.message);
   }
 
   return (
-    <Sheet title="এই সপ্তাহ স্থগিত" onClose={onClose}>
+    <Sheet title="Suspend classes this week" onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -79,10 +79,10 @@ export function SuspendSheet({
         }}
       >
         <p className="text-sm">
-          শনি <b>{bnDate(start)}</b> থেকে বুধ <b>{bnDate(end)}</b> পর্যন্ত পুরো সপ্তাহ।
+          The whole week, Saturday <b>{dayText(start)}</b> to Wednesday <b>{dayText(end)}</b>.
         </p>
         <label className="block text-sm font-medium">
-          শিরোনাম
+          Title
           <input
             className={field}
             value={title}
@@ -103,7 +103,7 @@ export function SuspendSheet({
             disabled={saving}
             className={`${primary} ${conflicts.length ? 'bg-amber-600 hover:bg-amber-700' : ''}`}
           >
-            {saving ? 'সংরক্ষণ হচ্ছে…' : conflicts.length ? 'তবুও সংরক্ষণ' : 'সংরক্ষণ'}
+            {saving ? 'Saving…' : conflicts.length ? 'Save anyway' : 'Save'}
           </button>
           <button
             type="button"
@@ -111,7 +111,7 @@ export function SuspendSheet({
             onClick={onClose}
             className={`${small} px-4 py-2`}
           >
-            বাতিল
+            Cancel
           </button>
         </div>
       </form>

@@ -1,25 +1,27 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { addDays } from '@/core/calendar/hijri';
-import { bnDigits, SEMESTERS, type JPhase } from '@/core/journey/journey';
+import { SEMESTERS, type JPhase } from '@/core/journey/journey';
 import { api } from '@/lib/api';
 import {
   approxDate,
-  bnDate,
+  dayText,
   delayText,
-  PHASE_BN,
+  PHASE_LABEL,
   PHASE_STYLE,
+  rangeText,
   runningText,
   semLabel,
   seriesName,
   SKIPPED_STRIP,
+  weeksText,
   type JourneyResponse,
 } from '@/lib/journey-ui';
 import { Sheet } from './Sheet';
 
 const PHASES: JPhase[] = ['CLASS', 'MID_BREAK', 'VIVA', 'EXAM', 'SEMESTER_BREAK'];
 
-/** One series, all 8 semesters: done ones as ticks, the current one opened, the rest projected. */
+/** One series: this semester's stages, what is next, and why it slipped. The rest is folded away. */
 export function SeriesSheet({
   seriesId,
   date,
@@ -42,12 +44,12 @@ export function SeriesSheet({
 
   const d = res?.data;
   return (
-    <Sheet title={d ? seriesName(d.series) : 'লোড হচ্ছে…'} onClose={onClose}>
+    <Sheet title={d ? seriesName(d.series) : 'Loading…'} onClose={onClose}>
       {!res ? (
-        <p className="text-sm">লোড হচ্ছে…</p>
+        <p className="text-sm">Loading…</p>
       ) : !d ? (
         <p role="alert" className="text-sm text-red-700 dark:text-red-400">
-          সিরিজের তথ্য আনা যায়নি। আবার চেষ্টা করুন।
+          Could not load this series. Please try again.
         </p>
       ) : (
         <Body d={d} date={date} />
@@ -56,91 +58,124 @@ export function SeriesSheet({
   );
 }
 
+/** "27 Jun – 26 Sep", or just "15 Aug" for a one-week phase; "around" until it is confirmed. */
+function phaseRange(weeks: JourneyResponse['weeks']): string {
+  const first = weeks[0]!;
+  const lastDay = addDays(weeks[weeks.length - 1]!.weekStart, 4); // Wednesday
+  const text = weeks.length === 1 ? dayText(first.weekStart) : rangeText(first.weekStart, lastDay);
+  return first.confirmed ? text : `around ${text}`;
+}
+
 function Body({ d, date }: { d: JourneyResponse; date: string }) {
   const s = d.state;
   if (s.status !== 'RUNNING' || s.semesterNo === null) {
     return (
       <p className="text-sm">
         {s.status === 'GRADUATED'
-          ? 'এই সিরিজের পড়াশোনা শেষ।'
+          ? 'This batch has finished its studies.'
           : s.status === 'BEFORE'
-            ? 'এই তারিখে সিরিজ শুরু হয়নি।'
-            : 'শুরুর তারিখ এখনো দেওয়া হয়নি।'}
+            ? 'This batch had not started on this date.'
+            : 'No data yet for this batch.'}
       </p>
     );
   }
   const cur = s.semesterNo;
   const sems = Array.from({ length: SEMESTERS }, (_, i) => i + 1);
   const sem = (n: number) => d.semesters.find((x) => x.semesterNo === n);
-  const firstCounted = (n: number, phase?: JPhase) =>
-    d.weeks.find(
-      (w) => w.semesterNo === n && w.status === 'COUNTED' && (!phase || w.phase === phase),
-    );
-  const done = sems.filter((n) => n < cur);
+  const firstCounted = (n: number) =>
+    d.weeks.find((w) => w.semesterNo === n && w.status === 'COUNTED');
+  const counted = (n: number, phase: JPhase) =>
+    d.weeks.filter((w) => w.semesterNo === n && w.phase === phase && w.status === 'COUNTED');
+  const nowIdx = PHASES.indexOf(s.phase!);
+  const next = s.nextSemester;
+  const last = sem(SEMESTERS);
 
   return (
     <div className="space-y-4">
-      {done.length > 0 && (
-        <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-          {done.map((n) => (
-            <span key={n}>
-              <span aria-hidden>✓</span>
-              <span className="sr-only">শেষ</span> {semLabel(n)}
-            </span>
-          ))}
-        </p>
-      )}
+      <p className="text-sm font-medium">
+        Semester {semLabel(cur)} · {runningText(s)}
+      </p>
 
-      <section aria-label={`${semLabel(cur)} সেমিস্টার`} className="space-y-3">
-        <h3 className="text-base font-semibold">
-          <span aria-hidden>● </span>
-          {semLabel(cur)}{' '}
-          <span className="font-normal">
-            {runningText(s).replace(' (', ' · ').replace(')', '')}
-          </span>
-        </h3>
-        <ul className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-          {PHASES.map((p) => {
-            const w = firstCounted(cur, p);
-            return w ? (
-              <li key={p} className="contents">
-                <span className="font-medium">{PHASE_BN[p]}</span>
-                <span className="text-zinc-700 dark:text-zinc-300">
-                  {approxDate(w.weekStart, w.confirmed)}
-                </span>
-              </li>
-            ) : null;
-          })}
-        </ul>
-        <WeekStrip weeks={d.weeks.filter((w) => w.semesterNo === cur)} today={date} />
-      </section>
-
-      <ol className="space-y-1.5 text-sm">
-        {sems
-          .filter((n) => n > cur)
-          .map((n) => {
-            const first = firstCounted(n);
-            const last = n === SEMESTERS;
-            const end = sem(n)?.end ?? (d.graduation ? addDays(d.graduation, -1) : null);
+      <section aria-label="This semester" className="space-y-1">
+        <h3 className="text-sm font-semibold">This semester</h3>
+        <ul className="grid grid-cols-[1rem_auto_1fr] items-baseline gap-x-2 gap-y-1 text-sm">
+          {PHASES.map((p, i) => {
+            const w = counted(cur, p);
+            if (w.length === 0) return null;
             return (
-              <li key={n} className="flex flex-wrap gap-x-3">
-                <span className="w-9 font-medium">{semLabel(n)}</span>
+              <li key={p} className="contents">
+                <span aria-hidden>{i < nowIdx ? '✓' : i === nowIdx ? '●' : ''}</span>
+                <span className={i === nowIdx ? 'font-semibold' : 'font-medium'}>
+                  {p === 'CLASS' ? 'Classes' : PHASE_LABEL[p]}
+                  {i === nowIdx && <span className="sr-only"> (now)</span>}
+                </span>
                 <span className="text-zinc-700 dark:text-zinc-300">
-                  {first ? `শুরু ${approxDate(first.weekStart, first.confirmed)}` : '—'}
-                  {last && end && ` · শেষ ~${bnDate(end, true)}`}
+                  {phaseRange(w)}
+                  {i === nowIdx && ' ← now'}
                 </span>
               </li>
             );
           })}
-      </ol>
+        </ul>
+      </section>
+
+      <section aria-label="Next" className="space-y-1">
+        <h3 className="text-sm font-semibold">Next</h3>
+        <p className="text-sm text-zinc-700 dark:text-zinc-300">
+          {next
+            ? `Semester ${semLabel(next.semesterNo)} starts ${approxDate(next.date, next.confirmed)}`
+            : cur === SEMESTERS && s.nextMilestone?.phase === 'GRADUATION'
+              ? `Studies end around ${dayText(s.nextMilestone.date)}`
+              : '—'}
+        </p>
+      </section>
 
       {s.delayReasons.length > 0 && (
-        <p className="rounded-md bg-amber-50 p-2 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-100">
-          দেরির কারণ: {s.delayReasons.map(delayText).join('; ')}
-        </p>
+        <section
+          aria-label="Delays"
+          className="rounded-md bg-amber-50 p-2 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-100"
+        >
+          <p className="font-medium">
+            Delayed so far this semester:{' '}
+            {weeksText(s.delayReasons.reduce((n, r) => n + r.weeks, 0))}
+          </p>
+          <ul className="mt-1 list-disc pl-5">
+            {s.delayReasons.map((r) => (
+              <li key={r.reason}>{delayText(r)}</li>
+            ))}
+          </ul>
+        </section>
       )}
+
+      <details className="text-sm">
+        <summary className="cursor-pointer font-medium underline">Show full plan</summary>
+        <div className="mt-2 space-y-3">
+          <ol className="space-y-1.5">
+            {sems
+              .filter((n) => n > cur)
+              .map((n) => {
+                const first = firstCounted(n);
+                const end =
+                  n === SEMESTERS
+                    ? (last?.end ?? (d.graduation ? addDays(d.graduation, -1) : null))
+                    : null;
+                return (
+                  <li key={n} className="flex flex-wrap gap-x-3">
+                    <span className="w-24 font-medium">Semester {semLabel(n)}</span>
+                    <span className="text-zinc-700 dark:text-zinc-300">
+                      {first ? `starts ${approxDate(first.weekStart, first.confirmed)}` : '—'}
+                      {end && ` · ends around ${dayText(end)}`}
+                    </span>
+                  </li>
+                );
+              })}
+          </ol>
+          <WeekStrip weeks={d.weeks.filter((w) => w.semesterNo === cur)} today={date} />
+        </div>
+      </details>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        ~ চিহ্নিত তারিখ আনুমানিক; ছুটির তালিকা বা কর্তৃপক্ষের সিদ্ধান্তে বদলাতে পারে।
+        Dates marked &quot;around&quot; are expected; they can change with the holiday list or
+        university decisions.
       </p>
     </div>
   );
@@ -153,12 +188,12 @@ function WeekStrip({ weeks, today }: { weeks: JourneyResponse['weeks']; today: s
       <div
         className="flex gap-0.5 overflow-x-auto pb-1"
         role="img"
-        aria-label={`সেমিস্টারের ${bnDigits(weeks.length)} সপ্তাহ, আজকের সপ্তাহ চিহ্নিত`}
+        aria-label={`${weeks.length} weeks of this semester, this week marked`}
       >
         {weeks.map((w, i) => {
           const label =
             w.weekStart.slice(0, 7) !== weeks[i - 1]?.weekStart.slice(0, 7)
-              ? new Date(`${w.weekStart}T00:00:00Z`).toLocaleDateString('bn-BD', {
+              ? new Date(`${w.weekStart}T00:00:00Z`).toLocaleDateString('en-GB', {
                   month: 'short',
                   timeZone: 'UTC',
                 })
@@ -183,12 +218,12 @@ function WeekStrip({ weeks, today }: { weeks: JourneyResponse['weeks']; today: s
         {PHASES.map((p) => (
           <li key={p} className="flex items-center gap-1">
             <span className={`inline-block h-2.5 w-2.5 rounded-sm ${PHASE_STYLE[p].strip}`} />
-            {PHASE_BN[p]}
+            {PHASE_LABEL[p]}
           </li>
         ))}
         <li className="flex items-center gap-1">
           <span className={`inline-block h-2.5 w-2.5 rounded-sm ${SKIPPED_STRIP}`} />
-          ছুটির সপ্তাহ
+          Holiday week
         </li>
       </ul>
     </div>

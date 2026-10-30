@@ -1,7 +1,7 @@
 import { addDays } from '../calendar/hijri';
 import { stateOn, type Journey } from './journey';
 
-// Admin tasks ("করণীয়", spec §5): generated from the journeys, never stored. Pure.
+// Admin tasks (the admin to-do list): generated from the journeys, never stored. Pure.
 
 export interface TaskSeries {
   seriesId: number;
@@ -26,15 +26,16 @@ export type Task =
       type: 'NEXT_SEMESTER_START';
       intakeYear: number;
       semesterNo: number;
-      /** Red "বাকি": the projected start date has already passed. */
+      /** Overdue: the projected start date has already passed. */
       overdue: boolean;
       /** Date to pre-fill: the earliest projected start in the group. */
       projectedStart: string;
-      /** Every series projects the same start date ("সবার জন্য একই"). */
+      /** Every series projects the same start date. */
       uniform: boolean;
       items: { seriesId: number; label: string; projectedStart: string }[];
     }
   | { type: 'NEW_BATCH'; intakeYear: number; seriesIds: number[]; labels: string[] }
+  | { type: 'SET_STATUS'; seriesIds: number[]; labels: string[] }
   | { type: 'YEARLY_DATES'; year: number; rules: { id: number; title: string }[] }
   | { type: 'CONFIRM_MOON'; items: TaskInput['tentative'] };
 
@@ -50,7 +51,7 @@ export function computeTasks(input: TaskInput): Task[] {
     const cur = s.journey.semesters.find((x) => x.semesterNo === st.semesterNo)!;
     const nearEnd = st.phase === 'SEMESTER_BREAK' || (st.phase === 'EXAM' && (st.weekNo ?? 0) >= 3);
     // Near the end: the next semester needs a date. Otherwise only a semester that started
-    // on its own projection and nobody ever confirmed (the red "বাকি" case).
+    // on its own projection and nobody ever confirmed (the overdue case).
     const target = nearEnd ? st.semesterNo + 1 : cur.confirmed ? null : st.semesterNo;
     if (target === null || target > 8) continue;
     const sem = s.journey.semesters.find((x) => x.semesterNo === target);
@@ -82,11 +83,16 @@ export function computeTasks(input: TaskInput): Task[] {
       a.intakeYear - b.intakeYear,
   );
 
-  // 2. New batch: series that have no position at all.
+  // 2. Series with no position at all. Only a batch admitted this year (or later) can still be at
+  // 1-1 day one; every older batch is already running, so it gets "set current status" and never a
+  // date field that could reset it to 1-1.
+  const year = Number(today.slice(0, 4));
   const fresh = new Map<number, TaskSeries[]>();
+  const running: TaskSeries[] = [];
   for (const s of input.series) {
     if (s.journey && s.journey.weeks.length > 0) continue;
-    fresh.set(s.intakeYear, [...(fresh.get(s.intakeYear) ?? []), s]);
+    if (s.intakeYear >= year) fresh.set(s.intakeYear, [...(fresh.get(s.intakeYear) ?? []), s]);
+    else running.push(s);
   }
   const batches: Task[] = [...fresh.entries()]
     .sort(([a], [b]) => a - b)
@@ -96,9 +102,17 @@ export function computeTasks(input: TaskInput): Task[] {
       seriesIds: list.map((s) => s.seriesId),
       labels: list.map((s) => s.label),
     }));
+  const status: Task[] = running.length
+    ? [
+        {
+          type: 'SET_STATUS',
+          seriesIds: running.map((s) => s.seriesId),
+          labels: running.map((s) => s.label),
+        },
+      ]
+    : [];
 
   // 3. Dates for the coming year, from Nov 1 (and the current year if still missing).
-  const year = Number(today.slice(0, 4));
   const yearly: Task[] =
     Number(today.slice(5, 7)) >= 11
       ? input.datesNeeded
@@ -113,5 +127,5 @@ export function computeTasks(input: TaskInput): Task[] {
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const moon: Task[] = soon.length ? [{ type: 'CONFIRM_MOON', items: soon }] : [];
 
-  return [...starts, ...batches, ...yearly, ...moon];
+  return [...starts, ...status, ...batches, ...yearly, ...moon];
 }

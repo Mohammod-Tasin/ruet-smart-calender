@@ -8,9 +8,9 @@ import { addDays } from '@/core/calendar/hijri';
 import { todayInDhaka } from '@/core/calendar/grid';
 import type { HijriPoint, RuleDef, RuleKind, RuleParams, RuleYear } from '@/core/calendar/rules';
 import { api, type ApiStructure } from '@/lib/api';
-import { dateRange, stamp } from '@/lib/format';
+import { audienceText, dateRange, stamp, trimNote } from '@/lib/format';
 import { useStructure } from '@/lib/hooks';
-import { HIJRI_MONTHS, KIND_LABEL, WEEKDAYS_BN, bn, ruleSummary } from '@/lib/rule-summary';
+import { HIJRI_MONTHS, KIND_LABEL, WEEKDAYS_EN, ruleSummary } from '@/lib/rule-summary';
 import type { ImpactGroup } from '@/core/journey/impact';
 import { AudiencePicker } from './AudiencePicker';
 import { hasChange, ImpactGroups, ImpactPreview, useShiftConfirm } from './ImpactPreview';
@@ -98,12 +98,14 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
         );
         return false;
       }
-      toast(done);
+      const trimmed = (r.data as { trimmed?: { startDate: string; endDate: string } } | null)
+        ?.trimmed;
+      toast(trimmed ? `${done} ${trimNote(trimmed, offDays)}` : done);
       setDialog(null);
       reload();
       return true;
     },
-    [toast],
+    [toast, offDays],
   );
 
   const override = (rule: RuleItem, body: Record<string, unknown>, done: string) =>
@@ -142,17 +144,69 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
     );
   }
 
+  const today = todayInDhaka();
   const needed = data?.datesNeeded.filter((d) => d.rules.length > 0) ?? [];
-  const fixed = data?.rules.filter((r) => r.params.kind === 'GREGORIAN_FIXED') ?? [];
-  const others = data?.rules.filter((r) => r.params.kind !== 'GREGORIAN_FIXED') ?? [];
+  const rules = data?.rules ?? [];
+  const missing = rules.filter(
+    (r) =>
+      r.params.kind === 'MANUAL_YEARLY' && r.yearInfo && !r.yearInfo.final && !r.yearInfo.skipped,
+  );
+  const sighting = rules.filter((r) => {
+    const f = r.yearInfo?.final;
+    return (
+      r.params.kind === 'HIJRI' &&
+      !r.yearInfo?.skipped &&
+      !r.yearInfo?.confirmed &&
+      f?.tentative &&
+      f.startDate >= today &&
+      f.startDate <= addDays(today, 60)
+    );
+  });
+  const action = new Set([...missing, ...sighting].map((r) => r.id));
+  const fixed = rules.filter((r) => r.params.kind === 'GREGORIAN_FIXED');
+  const moon = rules.filter((r) => r.params.kind === 'HIJRI' && !action.has(r.id));
+  const manual = rules.filter((r) => r.params.kind === 'MANUAL_YEARLY' && !action.has(r.id));
+
+  const row = (r: RuleItem) => (
+    <RuleRow
+      key={r.id}
+      rule={r}
+      year={year}
+      busy={busy === r.id}
+      onEdit={() => setDialog({ kind: 'rule', rule: r })}
+      onEnd={() => setDialog({ kind: 'end', rule: r })}
+      onDates={() => setDialog({ kind: 'dates', rule: r, year })}
+      onShift={(n) => shift(r, n)}
+      onConfirm={() => {
+        const info = r.yearInfo?.final ?? r.yearInfo?.computed;
+        void guarded(r, info ?? null, `${r.title}: same day`, () =>
+          override(r, { confirmed: true }, 'Confirmed.'),
+        );
+      }}
+      onSkip={(skipped) =>
+        guarded(
+          r,
+          skipped ? null : (r.yearInfo?.computed ?? null),
+          `${r.title}: ${skipped ? 'skip' : 'include'} ${year}`,
+          () =>
+            override(r, { skipped }, skipped ? `Skipped for ${year}.` : `Restored for ${year}.`),
+        )
+      }
+      onReset={() =>
+        guarded(r, r.yearInfo?.computed ?? null, `${r.title}: back to computed dates`, () =>
+          send(`/${r.id}/overrides`, 'DELETE', { year }, 'Back to computed dates.', r.id),
+        )
+      }
+    />
+  );
 
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-center gap-2 px-1">
         <Link href="/admin?tab=calendar" className={small}>
-          ← ক্যালেন্ডার
+          ← Calendar
         </Link>
-        <h2 className="mr-auto text-xl font-bold">বছরের ছুটির তালিকা</h2>
+        <h2 className="mr-auto text-xl font-bold">Yearly holidays</h2>
       </header>
 
       <div className="flex flex-wrap items-center gap-2 px-1">
@@ -193,103 +247,61 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
         </p>
       )}
 
-      {needed.map((d) => (
-        <section
-          key={d.year}
-          aria-label="তারিখ দিতে হবে"
-          className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950"
-        >
-          <p className="min-w-0 flex-1 text-sm text-amber-950 dark:text-amber-50">
-            <b>
-              {bn(d.year)} সালের {bn(d.rules.length)}টি ছুটির তারিখ দিতে হবে:
-            </b>{' '}
-            {d.rules.map((r) => r.title).join(', ')}
-          </p>
-          <button
-            type="button"
-            className={`${small} bg-white dark:bg-zinc-900`}
-            onClick={() => setDialog({ kind: 'year', year: d.year })}
-          >
-            {bn(d.year)} সালের তারিখ দিন
-          </button>
-        </section>
-      ))}
-
       {data === null && !error ? (
         <p className="px-1 text-sm">Loading…</p>
       ) : (
-        <div className="grid gap-2">
-          {fixed.length > 0 && (
-            <details className="rounded-lg border border-zinc-200 dark:border-zinc-800">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-                প্রতি বছর একই — কিছু করতে হবে না ({bn(fixed.length)})
-              </summary>
-              <ul className="space-y-1 px-3 pb-3 text-sm">
-                {fixed.map((r) => (
-                  <li key={r.id} className="flex flex-wrap items-center gap-x-3">
-                    <span className="font-medium">{r.title}</span>
-                    <span className="text-zinc-600 dark:text-zinc-400">
-                      {ruleSummary(r.params)}
-                    </span>
-                    <button
-                      type="button"
-                      className="ml-auto text-xs underline"
-                      onClick={() => setDialog({ kind: 'rule', rule: r })}
-                    >
-                      বদলান
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </details>
+        <div className="grid gap-3">
+          <section aria-label="Needs your action" className="space-y-2">
+            <h3 className="px-1 text-sm font-semibold">Needs your action</h3>
+            {needed.map((d) => (
+              <div
+                key={d.year}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950"
+              >
+                <p className="min-w-0 flex-1 text-sm text-amber-950 dark:text-amber-50">
+                  <b>
+                    Add {d.year} holiday dates ({d.rules.length}{' '}
+                    {d.rules.length === 1 ? 'holiday' : 'holidays'})
+                  </b>
+                  : {d.rules.map((r) => r.title).join(', ')}
+                </p>
+                <button
+                  type="button"
+                  className={`${small} bg-white dark:bg-zinc-900`}
+                  onClick={() => setDialog({ kind: 'year', year: d.year })}
+                >
+                  Add dates
+                </button>
+              </div>
+            ))}
+            {[...missing, ...sighting].map(row)}
+            {needed.length === 0 && action.size === 0 && (
+              <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Nothing needs your action.
+              </p>
+            )}
+          </section>
+
+          <Fold title="Automatic every year" count={fixed.length}>
+            {fixed.map(row)}
+          </Fold>
+          <Fold title="Moon-based" count={moon.length}>
+            {moon.map(row)}
+          </Fold>
+          {manual.length > 0 && (
+            <Fold title="Dates you entered" count={manual.length}>
+              {manual.map(row)}
+            </Fold>
           )}
-          {others.map((r) => (
-            <RuleCard
-              key={r.id}
-              rule={r}
-              year={year}
-              busy={busy === r.id}
-              onEdit={() => setDialog({ kind: 'rule', rule: r })}
-              onEnd={() => setDialog({ kind: 'end', rule: r })}
-              onDates={() => setDialog({ kind: 'dates', rule: r, year })}
-              onShift={(n) => shift(r, n)}
-              onConfirm={() => {
-                const info = r.yearInfo?.final ?? r.yearInfo?.computed;
-                void guarded(r, info ?? null, `${r.title}: confirm`, () =>
-                  override(r, { confirmed: true }, 'Confirmed.'),
-                );
-              }}
-              onSkip={(skipped) =>
-                guarded(
-                  r,
-                  skipped ? null : (r.yearInfo?.computed ?? null),
-                  `${r.title}: ${skipped ? 'skip' : 'include'} ${year}`,
-                  () =>
-                    override(
-                      r,
-                      { skipped },
-                      skipped ? `Skipped for ${year}.` : `Restored for ${year}.`,
-                    ),
-                )
-              }
-              onReset={() =>
-                guarded(r, r.yearInfo?.computed ?? null, `${r.title}: back to computed dates`, () =>
-                  send(`/${r.id}/overrides`, 'DELETE', { year }, 'Back to computed dates.', r.id),
-                )
-              }
-            />
-          ))}
-          {data?.rules.length === 0 && (
-            <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">
-              এখনো কোনো বছরের ছুটি নেই।
-            </p>
+          {rules.length === 0 && (
+            <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">No yearly holidays yet.</p>
           )}
         </div>
       )}
       {data && (
         <p className="px-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Hijri dates are computed from the Saudi (umalqura) calendar plus {data.bdOffset} day for
-          Bangladesh moon sighting, and stay tentative until you confirm them.
+          Moon-based dates come from the Saudi (umalqura) calendar plus {data.bdOffset} day for
+          Bangladesh moon sighting, and stay &quot;expected&quot; until you confirm them.
         </p>
       )}
 
@@ -317,7 +329,7 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
         />
       )}
       {pending && (
-        <Sheet title="সেমিস্টারে প্রভাব" onClose={() => setPending(null)}>
+        <Sheet title="Effect on semesters" onClose={() => setPending(null)}>
           <div className="space-y-4">
             <p className="text-sm font-medium">{pending.title}</p>
             <ImpactGroups groups={pending.groups} />
@@ -331,10 +343,10 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
                   run();
                 }}
               >
-                তবুও করুন
+                Do it anyway
               </button>
               <button type="button" className={small} onClick={() => setPending(null)}>
-                বাতিল
+                Cancel
               </button>
             </div>
           </div>
@@ -343,6 +355,7 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
       {dialog?.kind === 'year' && data && (
         <YearDatesForm
           year={dialog.year}
+          offDays={offDays}
           rules={data.rules.filter((r) =>
             data.datesNeeded.find((d) => d.year === dialog.year)?.rules.some((x) => x.id === r.id),
           )}
@@ -374,7 +387,49 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
   );
 }
 
-function RuleCard({
+/** A collapsed group of rows. */
+function Fold({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  if (count === 0) return null;
+  return (
+    <details className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+      <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">
+        {title} ({count})
+      </summary>
+      <div className="grid gap-2 p-2">{children}</div>
+    </details>
+  );
+}
+
+/** "More" menu: a <details> that closes itself after a choice. */
+function More({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="relative">
+      <summary className={`${small} cursor-pointer list-none`}>More</summary>
+      <div
+        className="absolute right-0 z-20 mt-1 grid min-w-44 gap-0.5 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        onClick={(e) => e.currentTarget.closest('details')?.removeAttribute('open')}
+      >
+        {children}
+      </div>
+    </details>
+  );
+}
+const item =
+  'rounded-md px-3 py-2 text-left text-sm hover:bg-zinc-100 disabled:opacity-60 dark:hover:bg-zinc-800';
+
+/**
+ * One yearly holiday for the selected year. At most two visible buttons: the main action (when
+ * there is one) and "More"; everything else lives in the menu.
+ */
+function RuleRow({
   rule,
   year,
   busy,
@@ -398,25 +453,30 @@ function RuleCard({
   onReset: () => void;
 }) {
   const info = rule.yearInfo;
-  const isHijri = rule.params.kind === 'HIJRI';
+  const kind = rule.params.kind;
+  const isHijri = kind === 'HIJRI';
   const years = `${rule.effectiveFromYear}${rule.effectiveToYear ? `–${rule.effectiveToYear}` : ' onward'}`;
   const hasOverride = !!info?.updatedBy;
+  const final = info && !info.skipped ? info.final : null;
+  const needsDates = kind === 'MANUAL_YEARLY' && info && !info.skipped && !info.final;
+  const needsSighting = isHijri && !!final && !info?.confirmed;
+
   return (
     <article
       className={`rounded-lg border border-zinc-200 p-3 dark:border-zinc-800 ${info ? '' : 'opacity-60'}`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="font-medium">{rule.title}</h2>
+        <h4 className="font-medium">{rule.title}</h4>
         <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
-          {KIND_LABEL[rule.params.kind]}
+          {KIND_LABEL[kind]}
         </span>
         {rule.classesOnly && (
           <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
-            শুধু ক্লাস বন্ধ
+            Classes off · offices open
           </span>
         )}
         <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800 dark:bg-green-950 dark:text-green-200">
-          {rule.label}
+          {audienceText(rule.label)}
         </span>
       </div>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
@@ -429,12 +489,13 @@ function RuleCard({
           'not active this year'
         ) : info.skipped ? (
           'skipped'
-        ) : info.final ? (
+        ) : final ? (
           <>
-            {dateRange(info.final.startDate, info.final.endDate)}
-            {info.final.tentative && (
+            {needsSighting ? 'expected ' : ''}
+            {dateRange(final.startDate, final.endDate)}
+            {final.tentative && (
               <span className="ml-2 rounded border border-dashed border-red-500 px-1.5 py-0.5 text-xs text-red-700 dark:text-red-300">
-                সম্ভাব্য / Tentative
+                Expected
               </span>
             )}
             {isHijri && info.confirmed && (
@@ -444,9 +505,7 @@ function RuleCard({
             )}
           </>
         ) : (
-          <span className="font-medium text-amber-700 dark:text-amber-400">
-            তারিখ দিতে হবে / dates needed
-          </span>
+          <span className="font-medium text-amber-700 dark:text-amber-400">Dates needed</span>
         )}
       </p>
       {hasOverride && info?.updatedAt && (
@@ -456,53 +515,60 @@ function RuleCard({
         </p>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {info && !info.skipped && isHijri && info.final && (
-          <>
-            <button type="button" className={small} disabled={busy} onClick={() => onShift(-1)}>
-              −১ দিন
-            </button>
-            <button type="button" className={small} disabled={busy} onClick={() => onShift(1)}>
-              +১ দিন
-            </button>
-            {!info.confirmed && (
-              <button
-                type="button"
-                className={`${small} border-emerald-700 text-emerald-800 dark:text-emerald-300`}
-                disabled={busy}
-                onClick={onConfirm}
-              >
-                নিশ্চিত
-              </button>
-            )}
-          </>
-        )}
-        {info && !info.skipped && (
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {needsDates && (
           <button type="button" className={small} disabled={busy} onClick={onDates}>
-            তারিখ দিন
+            Set dates
           </button>
         )}
-        {info && (
+        {needsSighting && (
           <button
             type="button"
-            className={small}
+            className={`${small} border-emerald-700 text-emerald-800 dark:text-emerald-300`}
             disabled={busy}
-            onClick={() => onSkip(!info.skipped)}
+            onClick={onConfirm}
           >
-            {info.skipped ? `Include ${year}` : `Skip ${year}`}
+            Same day
           </button>
         )}
-        {hasOverride && (
-          <button type="button" className={small} disabled={busy} onClick={onReset}>
-            Reset {year}
+        <More>
+          {isHijri && final && (
+            <>
+              <button type="button" className={item} disabled={busy} onClick={() => onShift(1)}>
+                1 day later
+              </button>
+              <button type="button" className={item} disabled={busy} onClick={() => onShift(-1)}>
+                1 day earlier
+              </button>
+            </>
+          )}
+          {info && !info.skipped && kind !== 'GREGORIAN_FIXED' && (
+            <button type="button" className={item} disabled={busy} onClick={onDates}>
+              Set exact dates
+            </button>
+          )}
+          {info && (
+            <button
+              type="button"
+              className={item}
+              disabled={busy}
+              onClick={() => onSkip(!info.skipped)}
+            >
+              {info.skipped ? `Include ${year}` : `Skip ${year}`}
+            </button>
+          )}
+          {hasOverride && (
+            <button type="button" className={item} disabled={busy} onClick={onReset}>
+              Reset {year}
+            </button>
+          )}
+          <button type="button" className={item} disabled={busy} onClick={onEdit}>
+            Edit rule
           </button>
-        )}
-        <button type="button" className={small} disabled={busy} onClick={onEdit}>
-          নিয়ম বদলান
-        </button>
-        <button type="button" className={small} disabled={busy} onClick={onEnd}>
-          নিয়ম শেষ
-        </button>
+          <button type="button" className={item} disabled={busy} onClick={onEnd}>
+            End rule
+          </button>
+        </More>
       </div>
     </article>
   );
@@ -630,15 +696,7 @@ function DatesForm({
         {rule.params.kind === 'HIJRI' && (
           <p className="text-xs text-zinc-500">Saving exact dates also confirms them.</p>
         )}
-        <TrimHint
-          start={start}
-          end={end}
-          offDays={offDays}
-          onTrim={(r) => {
-            setStart(r.startDate);
-            setEnd(r.endDate);
-          }}
-        />
+        <TrimHint start={start} end={end} offDays={offDays} />
         <ImpactPreview change={impactChange} impact={confirm.impact} />
         <FormButtons
           label={confirm.armed ? 'Confirm and save' : 'Save dates'}
@@ -820,7 +878,7 @@ function RuleForm({
             checked={classesOnly}
             onChange={(e) => setClassesOnly(e.target.checked)}
           />
-          শুধু ক্লাস বন্ধ <span className="text-zinc-500">(classes closed, offices open)</span>
+          Classes off only <span className="text-zinc-500">(offices stay open)</span>
         </label>
 
         <label className="block text-sm font-medium">
@@ -944,7 +1002,7 @@ function RuleForm({
                     value={last.weekday}
                     onChange={(e) => setLast({ ...last, weekday: num(e.target.value) })}
                   >
-                    {WEEKDAYS_BN.map((w, i) => (
+                    {WEEKDAYS_EN.map((w, i) => (
                       <option key={w} value={i}>
                         {w}
                       </option>
@@ -955,7 +1013,7 @@ function RuleForm({
             )}
             <p className="text-xs text-zinc-500">
               “± days” moves the date after the Bangladesh offset, e.g. Eid-ul-Fitr vacation starts
-              7 days before 1 Shawwal: day 1, month Shawwal, ± −{bn(7)}.
+              7 days before 1 Shawwal: day 1, month Shawwal, ± −7.
             </p>
           </div>
         )}
@@ -988,11 +1046,13 @@ function RuleForm({
 /** One form for every yearly holiday that still needs dates: a from/to pair per rule. */
 function YearDatesForm({
   year,
+  offDays,
   rules,
   onClose,
   onSaved,
 }: {
   year: number;
+  offDays: number[];
   rules: RuleItem[];
   onClose: () => void;
   onSaved: () => void;
@@ -1020,25 +1080,31 @@ function YearDatesForm({
   async function save() {
     setSaving(true);
     let failed = 0;
+    const trims: string[] = [];
     for (const r of filled) {
       const x = get(r.id);
-      const res = await api(`/api/admin/holiday-rules/${r.id}/overrides`, {
-        method: 'PUT',
-        body: { year, startDate: x.start, endDate: x.end },
-      });
+      const res = await api<{ trimmed?: { startDate: string; endDate: string } }>(
+        `/api/admin/holiday-rules/${r.id}/overrides`,
+        {
+          method: 'PUT',
+          body: { year, startDate: x.start, endDate: x.end },
+        },
+      );
       if (!res.ok) {
         failed++;
         toast(`${r.title}: ${res.message}`, 'error');
-      }
+      } else if (res.data?.trimmed)
+        trims.push(`${r.title}: ${trimNote(res.data.trimmed, offDays)}`);
     }
     setSaving(false);
-    if (failed < filled.length)
-      toast(`${bn(filled.length - failed)}টি ছুটির তারিখ সংরক্ষণ হয়েছে।`);
+    const saved = filled.length - failed;
+    if (saved > 0)
+      toast(`Saved ${saved} ${saved === 1 ? 'holiday' : 'holidays'}. ${trims.join(' ')}`);
     if (failed === 0) onSaved();
   }
 
   return (
-    <Sheet title={`${bn(year)} সালের তারিখ দিন`} onClose={onClose}>
+    <Sheet title={`Add ${year} holiday dates`} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -1047,7 +1113,7 @@ function YearDatesForm({
         }}
       >
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          যেগুলোর তারিখ এখন জানেন সেগুলো দিন; বাকিগুলো খালি রাখুন।
+          Fill in the dates you know now and leave the rest empty.
         </p>
         {rules.map((r) => {
           const x = get(r.id);
@@ -1057,7 +1123,7 @@ function YearDatesForm({
               <legend className="text-sm font-medium">{r.title}</legend>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs">
-                  শুরু
+                  From
                   <input
                     type="date"
                     className={field}
@@ -1074,7 +1140,7 @@ function YearDatesForm({
                   />
                 </label>
                 <label className="block text-xs">
-                  শেষ
+                  To
                   <input
                     type="date"
                     className={field}
@@ -1084,12 +1150,13 @@ function YearDatesForm({
                   />
                 </label>
               </div>
+              <TrimHint start={x.start} end={x.end} offDays={offDays} />
             </fieldset>
           );
         })}
         <ImpactPreview change={impactChange} impact={confirm.impact} />
         <FormButtons
-          label={saving ? 'সংরক্ষণ হচ্ছে…' : confirm.armed ? 'নিশ্চিত করে সংরক্ষণ' : 'সংরক্ষণ'}
+          label={saving ? 'Saving…' : confirm.armed ? 'Confirm and save all' : 'Save all'}
           onClose={onClose}
           disabled={saving || bad || filled.length === 0}
         />
