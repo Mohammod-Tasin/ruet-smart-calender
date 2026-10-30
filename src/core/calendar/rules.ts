@@ -2,8 +2,16 @@ import { addDays, hijriMonthEnd, hijriToGregorian, hijriYearsAround, weekdayOf }
 import type { AudienceEntry } from './types';
 
 /** Add a category here (and its colour in src/lib/categories.ts). */
-export const CATEGORIES = ['HOLIDAY'] as const;
+export const CATEGORIES = ['HOLIDAY', 'SUSPENDED_WEEK'] as const;
 export type Category = (typeof CATEGORIES)[number];
+
+/** A suspended week is exactly Saturday to Wednesday of one week (CLAUDE.md §15). */
+export function suspendedWeekProblem(c: { category?: string; startDate: string; endDate: string }) {
+  if (c.category !== 'SUSPENDED_WEEK') return null;
+  return weekdayOf(c.startDate) === 6 && c.endDate === addDays(c.startDate, 4)
+    ? null
+    : 'A suspended week must run exactly Saturday to Wednesday.';
+}
 
 export interface HijriPoint {
   month: number; // 1 = Muharram ... 9 = Ramadan ... 12 = Dhul-Hijjah

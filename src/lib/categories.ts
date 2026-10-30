@@ -8,6 +8,11 @@ export const CATEGORY_STYLE: Record<Category, { label: string; solid: string; te
     solid: 'bg-red-600 dark:bg-red-700',
     text: 'text-red-700 dark:text-red-300',
   },
+  SUSPENDED_WEEK: {
+    label: 'স্থগিত',
+    solid: 'bg-slate-500 dark:bg-slate-600',
+    text: 'text-slate-700 dark:text-slate-300',
+  },
 };
 
 export const categoryStyle = (c: string) => CATEGORY_STYLE[c as Category] ?? CATEGORY_STYLE.HOLIDAY;

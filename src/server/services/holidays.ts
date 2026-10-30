@@ -3,7 +3,7 @@ import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql, type SQL } fro
 import { alias } from 'drizzle-orm/pg-core';
 import { compressAudience } from '@/core/calendar/compress';
 import { findOverlaps, type Overlap, type OverlapInput } from '@/core/calendar/overlap';
-import type { Category } from '@/core/calendar/rules';
+import { suspendedWeekProblem, type Category } from '@/core/calendar/rules';
 import type { AudienceEntry, Structure } from '@/core/calendar/types';
 import type {
   CheckOverlapInput,
@@ -291,6 +291,8 @@ export async function updateHoliday(
     if (merged.endDate < merged.startDate) {
       return fail('BAD_REQUEST', 'endDate must be on or after startDate.');
     }
+    const suspended = suspendedWeekProblem(merged);
+    if (suspended) return fail('BAD_REQUEST', suspended);
 
     const structure = await getStructure(tx);
     if (patch.audience) {

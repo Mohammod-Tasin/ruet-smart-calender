@@ -17,6 +17,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { RuleParams } from '../../core/calendar/rules';
+import type { JourneyStructure } from '../../core/journey/journey';
 import type { Template } from '../../core/semester/timeline';
 
 export const faculties = pgTable('faculties', {
@@ -277,6 +278,54 @@ export const semesterPins = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique().on(t.semesterId, t.phase)],
+);
+
+/** "Today this series is in semester S, phase P, week W" (spec §3). The journey is derived. */
+export const seriesPositions = pgTable(
+  'series_positions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    seriesId: integer('series_id')
+      .notNull()
+      .references(() => series.id),
+    asOfDate: date('as_of_date', { mode: 'string' }).notNull(), // that week's Saturday
+    semesterNo: integer('semester_no').notNull(),
+    phase: text('phase', {
+      enum: ['CLASS', 'MID_BREAK', 'VIVA', 'EXAM', 'SEMESTER_BREAK'],
+    }).notNull(),
+    weekNo: integer('week_no').notNull(),
+    kind: text('kind', { enum: ['POSITION', 'SEMESTER_START'] }).notNull(),
+    note: text('note'),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => admins.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => [
+    check('series_positions_semester_no_check', sql`${t.semesterNo} BETWEEN 1 AND 8`),
+    check('series_positions_week_no_check', sql`${t.weekNo} BETWEEN 1 AND 30`),
+    check(
+      'series_positions_phase_check',
+      sql`${t.phase} IN ('CLASS','MID_BREAK','VIVA','EXAM','SEMESTER_BREAK')`,
+    ),
+    check('series_positions_kind_check', sql`${t.kind} IN ('POSITION','SEMESTER_START')`),
+    uniqueIndex('series_positions_one_per_week')
+      .on(t.seriesId, t.asOfDate)
+      .where(sql`${t.deletedAt} IS NULL`),
+  ],
+);
+
+/** One row (id = 1): the semester structure shared by every series. */
+export const academicSettings = pgTable(
+  'academic_settings',
+  {
+    id: integer('id').primaryKey(),
+    structure: jsonb('structure').$type<JourneyStructure>().notNull(),
+    updatedBy: integer('updated_by').references(() => admins.id), // null for the initial row
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('academic_settings_single_row', sql`${t.id} = 1`)],
 );
 
 export const sessions = pgTable('sessions', {

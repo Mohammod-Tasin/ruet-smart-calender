@@ -75,7 +75,9 @@ export const auditEntity = (
     | 'SEMESTER'
     | 'SEMESTER_CHECKPOINT'
     | 'SEMESTER_WEEK_OVERRIDE'
-    | 'SEMESTER_PIN',
+    | 'SEMESTER_PIN'
+    | 'SERIES_POSITION'
+    | 'ACADEMIC_SETTINGS',
   entityId: number,
   before: unknown,
   after: unknown,

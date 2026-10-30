@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import type { ImpactGroup, ProposedChange } from '@/core/semester/impact';
+import type { ImpactGroup } from '@/core/journey/impact';
+import type { ProposedChange } from '@/core/semester/impact';
 import { api } from '@/lib/api';
 import { bn } from '@/lib/rule-summary';
 import { bnDate, PHASE_BN } from '@/lib/semester-ui';
@@ -50,7 +51,7 @@ export function ImpactGroups({ groups }: { groups: ImpactGroup[] }) {
   return (
     <ul className="space-y-2 text-sm">
       {groups.map((g) => {
-        const finals = g.changes.find((c) => c.phase === 'FINALS');
+        const finals = g.changes.find((c) => c.phase === 'EXAM');
         return (
           <li key={g.seriesIds.join(',')}>
             <p>
@@ -59,7 +60,7 @@ export function ImpactGroups({ groups }: { groups: ImpactGroup[] }) {
               {finals?.before && finals.after && (
                 <>
                   {' '}
-                  · {PHASE_BN.FINALS} {bnDate(finals.before)} → {bnDate(finals.after)}
+                  · {PHASE_BN.EXAM} {bnDate(finals.before)} → {bnDate(finals.after)}
                 </>
               )}
             </p>

@@ -1,7 +1,7 @@
 import { impactSchema } from '@/core/validation/semesters';
 import { adminMutation } from '@/server/http/mutation';
 import { ok } from '@/server/services/shared';
-import { computeImpact } from '@/server/services/semesters';
+import { computeImpact } from '@/server/services/journey';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

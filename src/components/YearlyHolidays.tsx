@@ -11,7 +11,7 @@ import { api, type ApiStructure } from '@/lib/api';
 import { dateRange, stamp } from '@/lib/format';
 import { useStructure } from '@/lib/hooks';
 import { HIJRI_MONTHS, KIND_LABEL, WEEKDAYS_BN, bn, ruleSummary } from '@/lib/rule-summary';
-import type { ImpactGroup } from '@/core/semester/impact';
+import type { ImpactGroup } from '@/core/journey/impact';
 import { AudiencePicker } from './AudiencePicker';
 import { hasChange, ImpactGroups, ImpactPreview } from './ImpactPreview';
 import { Sheet } from './Sheet';

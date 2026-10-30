@@ -336,17 +336,25 @@ HIJRI_BD_DAY_OFFSET=1  # added to the Saudi (umalqura) Hijri date; Bangladesh si
    `holiday_rules` + overrides + versioning + Hijri + MANUAL_YEARLY, one
    `getOffDays()`, seed of the RUET 2026 list, "Yearly holidays" admin page with
    "dates needed" panel, spanning-bar calendar with lane algorithm.
-10. ✅ Semester engine (§15): pure core + tables + APIs + audit + impact diff.
-11. Semester UI: Status page, timeline drawer, calendar header line, admin
-    semester screens, impact preview in holiday forms, reminders.
+10. ✅ Semester engine (superseded by Phase 12; old code removed in 12b).
+11. ✅ Semester UI (superseded by Phase 12; removed in 12b).
+12. Series journey (§15), spec `docs/phase-12-journey-spec.md`.
+    - 12a: migration to `series_positions`, `src/core/journey/`,
+      `computeTasks`, APIs, tests. No UI. Old semester tables/routes/UI stay
+      working; only `/api/admin/impact` moves to the journey engine.
+    - 12b: admin UI (Home / Calendar / Series board), public UI (my series,
+      status matrix, series sheet), drop old tables + routes + UI, replace
+      `test-semesters.ts` flows, script creating the 2026 intake series for all
+      departments, mark graduated series inactive.
 
-Full reference for 9–11: `docs/phase-9-11-spec.md`.
+Full reference for 9–11: `docs/phase-9-11-spec.md` (its §4 semester model is
+replaced by Phase 12).
 
 ## 13. Holiday categories, rules and sources (Phase 9)
 
 - `holidays` and `holiday_rules` have `classes_only` (RUET "শুধুমাত্র ক্লাস বন্ধ"):
   counts as an off day everywhere; the day sheet shows a "শুধু ক্লাস বন্ধ" badge.
-  `holidays.category` (default `HOLIDAY`, red). Category → colour lives in one map
+  `holidays.category` (default `HOLIDAY`, red; also `SUSPENDED_WEEK`, §15). Category → colour lives in one map
   (`src/lib/categories.ts`); adding a category is a one-line change.
 - Every consumer (public calendar, admin calendar, overlap check, semester engine)
   reads holidays through ONE function: `getOffDays(range, audienceFilter?)`, which
@@ -380,19 +388,46 @@ days as HIJRI with confirmed 2026 overrides, Hindu/Buddhist/summer days as
 MANUAL_YEARLY with 2026 overrides. Titles are Bengali; every Hindu puja is just
 "সনাতনী ছুটি". Full table: `docs/phase-9-11-spec.md` §7.
 
-## 15. Department semester state (engine built in Phase 10; UI is Phase 11)
+## 15. Series journey (Phase 12; replaces the Phase 10-11 semester model)
 
-Each **series** has its own semester; the timeline is derived, never stored.
-Default template: CLASS 7 wk (extends), MID_BREAK 1 (no extend), CLASS 6 wk
-(extends), VIVA 1 (extends), FINALS 4 (extends). A week where all 5 working days
-(Sat–Wed) are off for that series is skipped and shifts the rest; partial weeks,
-holidays split across two weeks, and full weeks in MID_BREAK never shift (admin can
-force). Manual corrections: checkpoints, week overrides (FORCE_EXTEND / NO_EXTEND),
-template override, pins (a pinned phase starts exactly on its date: that week is never
-skipped, even if it is fully off; a pin on CLASS is not allowed). A series whose weeks
-are over shows AWAITING_NEXT until an admin completes it (COMPLETED). Pure engine in `src/core/semester/timeline.ts`; state is
-shown on a Status page and timeline drawer, **never inside calendar day cells**.
-Details and API list: `docs/phase-9-11-spec.md` §4.
+Each **series** has a derived journey over the whole 4-year programme (8 semesters
+1-1 … 4-2, then GRADUATED). Nothing about the timeline is stored; it is computed by the
+pure engine in `src/core/journey/` from the admin inputs below plus `getOffDays()`.
+
+- Admin inputs are only: (1) **Position** "today this series is in semester S, phase P,
+  week W" and **SEMESTER_START** (exact first class day, CLASS week 1) in
+  `series_positions` (`as_of_date` normalised to that week's Saturday; unique per series
+  per week among live rows; soft delete); (2) **Suspended week**; plus holidays.
+- Every semester has the same structure, stored once in `academic_settings` (id 1):
+  CLASS 7 (extends), MID_BREAK 1 (no), CLASS 6 (extends), VIVA 1 (extends), EXAM 4
+  (extends), SEMESTER_BREAK 1 (no). The next semester's CLASS week 1 starts the following
+  Saturday. After 4-2's last exam week the series graduates (no break after 4-2).
+- A **full off week** for a series = all 5 working days (Sat-Wed) off from `getOffDays()`
+  (one-off, rules incl. tentative Hijri, overrides, suspended weeks). In an extendable
+  phase such a week is SKIPPED (not counted) and the rest of the journey moves one week
+  later. Partial weeks, holidays split over two weeks, and full weeks in MID_BREAK /
+  SEMESTER_BREAK never shift anything.
+- **Suspended week** ("স্থগিত সপ্তাহ") = a one-off holiday with `category =
+  'SUSPENDED_WEEK'`, always exactly Sat-Wed of one week, any audience. No special engine
+  code: it simply makes a full off week. Deleting it undoes the shift.
+- Algorithm: earliest position = anchor; back-fill the anchor's semester with the same
+  skip rules (estimated); walk forward week by week; a later position or SEMESTER_START
+  always wins over computation (that week counts even if fully off); `confirmed` =
+  from the latest SEMESTER_START (or first POSITION) to the end of that semester,
+  everything after is projected.
+- `computeTasks(today)` (generated, never stored), priority order: next-semester start
+  date (series in EXAM week >= 3 or later with no SEMESTER_START for the next semester,
+  grouped by intake+semester; red once the projected start has passed); new batch first
+  class (series with no position); next year's MANUAL_YEARLY dates (from Nov 1);
+  confirm moon sighting (tentative Hijri within 30 days). Ignoring tasks breaks nothing.
+- State is shown on the Status page and series sheet, **never inside calendar day
+  cells**. Exam has no per-day dates: UI shows only "পরীক্ষা · nth সপ্তাহ".
+- Writes to positions/settings are audited (`entity_type` `SERIES_POSITION` /
+  `ACADEMIC_SETTINGS`) in the same transaction.
+- API (Phase 12): public `GET /api/status?date=`, `GET /api/series/[id]/journey`; admin
+  `GET /api/admin/tasks`, `POST /api/admin/positions/bulk`,
+  `DELETE /api/admin/positions/[id]`, `GET/PUT /api/admin/academic-settings`,
+  `POST /api/admin/impact` (same contract, journey engine).
 
 ## 12. Seed data
 

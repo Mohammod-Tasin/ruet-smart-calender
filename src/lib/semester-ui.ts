@@ -44,11 +44,13 @@ export interface TimelineResponse {
 
 // --- Bengali labels ---------------------------------------------------------------------------
 
-export const PHASE_BN: Record<StatePhase, string> = {
+export const PHASE_BN: Record<StatePhase | 'EXAM' | 'SEMESTER_BREAK', string> = {
   CLASS: 'ক্লাস',
   MID_BREAK: 'মিড ব্রেক',
   VIVA: 'ভাইভা',
   FINALS: 'সেমিস্টার ফাইনাল',
+  EXAM: 'সেমিস্টার ফাইনাল',
+  SEMESTER_BREAK: 'সেমিস্টার বিরতি',
   AWAITING_NEXT: 'সেমিস্টার শেষ',
   COMPLETED: 'সম্পন্ন',
   NOT_STARTED: 'শুরু হয়নি',

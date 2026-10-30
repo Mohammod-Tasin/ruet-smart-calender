@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CATEGORIES } from '@/core/calendar/rules';
+import { CATEGORIES, suspendedWeekProblem } from '@/core/calendar/rules';
 import type { AudienceEntry } from '@/core/calendar/types';
 import { isRealDate } from './holidays-query';
 
@@ -57,6 +57,15 @@ const orderCheck = (v: { startDate?: string; endDate?: string }, ctx: z.Refineme
 
 const category = z.enum(CATEGORIES);
 
+const suspendedCheck = (
+  v: { category?: string; startDate?: string; endDate?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (v.startDate === undefined || v.endDate === undefined) return; // PATCH: checked on the merged value
+  const problem = suspendedWeekProblem({ ...v, startDate: v.startDate, endDate: v.endDate });
+  if (problem) ctx.addIssue({ code: 'custom', path: ['category'], message: problem });
+};
+
 const base = z.object({
   title,
   note: note.optional(),
@@ -68,12 +77,18 @@ const base = z.object({
   confirmOverlap,
 });
 
-export const createHolidaySchema = base.superRefine(orderCheck);
+export const createHolidaySchema = base.superRefine((v, ctx) => {
+  orderCheck(v, ctx);
+  suspendedCheck(v, ctx);
+});
 
 /** Same body as create, plus an optional id to leave out (used while editing a holiday). */
 export const checkOverlapSchema = base
   .extend({ excludeId: z.number().int().positive().optional() })
-  .superRefine(orderCheck);
+  .superRefine((v, ctx) => {
+    orderCheck(v, ctx);
+    suspendedCheck(v, ctx);
+  });
 
 export const patchHolidaySchema = z
   .object({

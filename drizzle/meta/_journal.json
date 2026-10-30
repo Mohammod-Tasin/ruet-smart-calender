@@ -29,6 +29,13 @@
       "when": 1792911387728,
       "tag": "0003_wet_martin_li",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793339832570,
+      "tag": "0004_wet_vin_gonzales",
+      "breakpoints": true
     }
   ]
 }
