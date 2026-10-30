@@ -1,4 +1,5 @@
 import { todayInDhaka } from '@/core/calendar/grid';
+import { monthShort } from '@/core/calendar/months';
 import {
   semesterLabel,
   type JourneySemester,
@@ -59,14 +60,8 @@ export const PHASE_SHORT: Record<JPhase, string> = { ...PHASE_LABEL, EXAM: 'Fina
 
 /** "21 Nov", with the year ("21 Nov 2027") when it is not the current year. */
 export function dayText(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
   const sameYear = iso.slice(0, 4) === todayInDhaka().slice(0, 4);
-  return d.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(sameYear ? {} : { year: 'numeric' }),
-    timeZone: 'UTC',
-  });
+  return `${Number(iso.slice(8, 10))} ${monthShort(iso)}${sameYear ? '' : ` ${iso.slice(0, 4)}`}`;
 }
 /** "21–25 Oct", "30 Oct – 2 Nov" or "21 Oct" (one day). */
 export function rangeText(start: string, end: string): string {

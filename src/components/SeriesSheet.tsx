@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { addDays } from '@/core/calendar/hijri';
+import { monthShort } from '@/core/calendar/months';
 import { SEMESTERS, type JPhase } from '@/core/journey/journey';
 import { api } from '@/lib/api';
 import {
@@ -107,7 +108,6 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
                 <span aria-hidden>{i < nowIdx ? '✓' : i === nowIdx ? '●' : ''}</span>
                 <span className={i === nowIdx ? 'font-semibold' : 'font-medium'}>
                   {p === 'CLASS' ? 'Classes' : PHASE_LABEL[p]}
-                  {i === nowIdx && <span className="sr-only"> (now)</span>}
                 </span>
                 <span className="text-zinc-700 dark:text-zinc-300">
                   {phaseRange(w)}
@@ -193,10 +193,7 @@ function WeekStrip({ weeks, today }: { weeks: JourneyResponse['weeks']; today: s
         {weeks.map((w, i) => {
           const label =
             w.weekStart.slice(0, 7) !== weeks[i - 1]?.weekStart.slice(0, 7)
-              ? new Date(`${w.weekStart}T00:00:00Z`).toLocaleDateString('en-GB', {
-                  month: 'short',
-                  timeZone: 'UTC',
-                })
+              ? monthShort(w.weekStart)
               : '';
           const now = today >= w.weekStart && today < addDays(w.weekStart, 7);
           return (

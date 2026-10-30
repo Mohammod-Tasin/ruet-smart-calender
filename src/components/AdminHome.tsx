@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { todayInDhaka } from '@/core/calendar/grid';
 import type { Task } from '@/core/journey/tasks';
 import { api } from '@/lib/api';
 import { dayText, semLabel } from '@/lib/journey-ui';
@@ -168,7 +169,7 @@ function StartCard({
   return (
     <Card
       badge={t.overdue ? 'Overdue' : undefined}
-      title={`Batch ${t.intakeYear}: when did Semester ${semLabel(t.semesterNo)} classes start?`}
+      title={`Batch ${t.intakeYear}: ${t.projectedStart > todayInDhaka() ? 'When will' : 'When did'} Semester ${semLabel(t.semesterNo)} classes start?`}
     >
       <p className="text-sm text-zinc-700 dark:text-zinc-300">
         Departments: {t.items.map((i) => i.label.split('-')[0]).join(', ')}

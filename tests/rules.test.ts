@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { hintedTitle, ruleMonthHints } from '@/core/calendar/rule-hint';
 import {
   computeRuleDates,
   expandRules,
@@ -198,5 +199,50 @@ describe('rule versioning: past years never change', () => {
       (o) => o.year,
     );
     expect(years).toEqual([2026, 2027]);
+  });
+});
+
+describe('ruleMonthHints', () => {
+  const mk = (id: number, title: string, params: RuleDef['params']): RuleDef => ({
+    id,
+    title,
+    category: 'HOLIDAY',
+    classesOnly: false,
+    params,
+    audience: [{ scopeType: 'ALL', scopeId: null }],
+    effectiveFromYear: 2026,
+    effectiveToYear: null,
+  });
+  const manual = { kind: 'MANUAL_YEARLY', defaultLengthDays: 1 } as const;
+  const ov = (ruleId: number, startDate: string) => ({
+    ruleId,
+    year: 2026,
+    startDate,
+    endDate: startDate,
+    skipped: false,
+    confirmed: false,
+    note: null,
+  });
+
+  test('only rules sharing a title get a hint, taken from the latest occurrence', () => {
+    const rules = [
+      mk(1, 'Sanatani Holiday', manual),
+      mk(2, 'Sanatani Holiday', manual),
+      mk(3, 'Sanatani Holiday', manual),
+      mk(4, 'May Day', { kind: 'GREGORIAN_FIXED', month: 5, day: 1, lengthDays: 1 }),
+    ];
+    const hints = ruleMonthHints(
+      rules,
+      [ov(1, '2026-01-23'), ov(2, '2026-09-04'), ov(3, '2026-10-17')],
+      2026,
+      1,
+    );
+    expect([...hints]).toEqual([
+      [1, 'Jan'],
+      [2, 'Sep'],
+      [3, 'Oct'],
+    ]);
+    expect(hintedTitle('Sanatani Holiday', hints.get(3))).toBe('Sanatani Holiday (Oct)');
+    expect(hintedTitle('May Day', hints.get(4))).toBe('May Day');
   });
 });

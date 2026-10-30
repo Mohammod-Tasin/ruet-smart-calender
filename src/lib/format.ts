@@ -1,3 +1,4 @@
+import { monthShort } from '@/core/calendar/months';
 import { rangeText } from './journey-ui';
 import { WEEKDAYS_EN } from './rule-summary';
 
@@ -11,12 +12,7 @@ export const monthTitle = (year: number, month: number) =>
   });
 
 export const shortDate = (iso: string) =>
-  utc(iso).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
+  `${Number(iso.slice(8, 10))} ${monthShort(iso)} ${iso.slice(0, 4)}`;
 
 export const longDate = (iso: string) =>
   utc(iso).toLocaleDateString('en-GB', {
@@ -35,12 +31,7 @@ export const dateRange = (start: string, end: string) =>
 
 /** A timestamp (ISO instant) shown as a date in the business time zone. */
 export const stamp = (instant: string) =>
-  new Date(instant).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'Asia/Dhaka',
-  });
+  shortDate(new Date(instant).toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' }));
 
 /**
  * "Thursday and Friday are weekly holidays, so we saved 17–21 Oct." `verb` is "saved" after a

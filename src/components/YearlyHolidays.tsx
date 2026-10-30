@@ -10,7 +10,7 @@ import type { HijriPoint, RuleDef, RuleKind, RuleParams, RuleYear } from '@/core
 import { api, type ApiStructure } from '@/lib/api';
 import { audienceText, dateRange, stamp, trimNote } from '@/lib/format';
 import { useStructure } from '@/lib/hooks';
-import { HIJRI_MONTHS, KIND_LABEL, WEEKDAYS_EN, ruleSummary } from '@/lib/rule-summary';
+import { HIJRI_MONTHS, KIND_LABEL, WEEKDAYS_EN, ruleName, ruleSummary } from '@/lib/rule-summary';
 import type { ImpactGroup } from '@/core/journey/impact';
 import { AudiencePicker } from './AudiencePicker';
 import { hasChange, ImpactGroups, ImpactPreview, useShiftConfirm } from './ImpactPreview';
@@ -139,7 +139,7 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
     if (!info) return;
     const dates = { startDate: addDays(info.startDate, n), endDate: addDays(info.endDate, n) };
     const sign = n > 0 ? '+' : '−';
-    void guarded(rule, dates, `${rule.title}: ${sign}1 day`, () =>
+    void guarded(rule, dates, `${ruleName(rule)}: ${sign}1 day`, () =>
       override(rule, dates, `Moved ${sign}1 day.`),
     );
   }
@@ -179,7 +179,7 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
       onShift={(n) => shift(r, n)}
       onConfirm={() => {
         const info = r.yearInfo?.final ?? r.yearInfo?.computed;
-        void guarded(r, info ?? null, `${r.title}: same day`, () =>
+        void guarded(r, info ?? null, `${ruleName(r)}: confirm date`, () =>
           override(r, { confirmed: true }, 'Confirmed.'),
         );
       }}
@@ -187,13 +187,13 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
         guarded(
           r,
           skipped ? null : (r.yearInfo?.computed ?? null),
-          `${r.title}: ${skipped ? 'skip' : 'include'} ${year}`,
+          `${ruleName(r)}: ${skipped ? 'skip' : 'include'} ${year}`,
           () =>
             override(r, { skipped }, skipped ? `Skipped for ${year}.` : `Restored for ${year}.`),
         )
       }
       onReset={() =>
-        guarded(r, r.yearInfo?.computed ?? null, `${r.title}: back to computed dates`, () =>
+        guarded(r, r.yearInfo?.computed ?? null, `${ruleName(r)}: back to computed dates`, () =>
           send(`/${r.id}/overrides`, 'DELETE', { year }, 'Back to computed dates.', r.id),
         )
       }
@@ -466,7 +466,7 @@ function RuleRow({
       className={`rounded-lg border border-zinc-200 p-3 dark:border-zinc-800 ${info ? '' : 'opacity-60'}`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h4 className="font-medium">{rule.title}</h4>
+        <h4 className="font-medium">{ruleName(rule)}</h4>
         <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
           {KIND_LABEL[kind]}
         </span>
@@ -528,7 +528,7 @@ function RuleRow({
             disabled={busy}
             onClick={onConfirm}
           >
-            Same day
+            Confirm date
           </button>
         )}
         <More>
@@ -587,7 +587,7 @@ function EndForm({
 }) {
   const [fromYear, setFromYear] = useState(defaultYear);
   return (
-    <Sheet title={`End: ${rule.title}`} onClose={onClose}>
+    <Sheet title={`End: ${ruleName(rule)}`} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -644,7 +644,7 @@ function DatesForm({
     : null;
   const confirm = useShiftConfirm(impactChange);
   return (
-    <Sheet title={`${rule.title} · ${year}`} onClose={onClose}>
+    <Sheet title={`${ruleName(rule)} · ${year}`} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -853,7 +853,7 @@ function RuleForm({
   );
 
   return (
-    <Sheet title={rule ? `Edit: ${rule.title}` : 'New yearly holiday'} onClose={onClose}>
+    <Sheet title={rule ? `Edit: ${ruleName(rule)}` : 'New yearly holiday'} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -1092,9 +1092,9 @@ function YearDatesForm({
       );
       if (!res.ok) {
         failed++;
-        toast(`${r.title}: ${res.message}`, 'error');
+        toast(`${ruleName(r)}: ${res.message}`, 'error');
       } else if (res.data?.trimmed)
-        trims.push(`${r.title}: ${trimNote(res.data.trimmed, offDays)}`);
+        trims.push(`${ruleName(r)}: ${trimNote(res.data.trimmed, offDays)}`);
     }
     setSaving(false);
     const saved = filled.length - failed;
@@ -1120,7 +1120,7 @@ function YearDatesForm({
           const len = r.params.kind === 'MANUAL_YEARLY' ? r.params.defaultLengthDays : 1;
           return (
             <fieldset key={r.id} className="space-y-1">
-              <legend className="text-sm font-medium">{r.title}</legend>
+              <legend className="text-sm font-medium">{ruleName(r)}</legend>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs">
                   From

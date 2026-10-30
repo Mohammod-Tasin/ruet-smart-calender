@@ -2,6 +2,7 @@ import 'server-only';
 import { and, asc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { compressAudience } from '@/core/calendar/compress';
+import { hintedTitle, ruleMonthHints } from '@/core/calendar/rule-hint';
 import {
   activeInYear,
   expandRules,
@@ -178,6 +179,8 @@ export interface RuleYearView extends RuleYear {
 
 export interface RuleListItem extends RuleRecord {
   label: string;
+  /** Month of the latest occurrence, only for rules that share a title with another rule. */
+  hint: string | null;
   /** null when the rule is not active in the selected year */
   yearInfo: RuleYearView | null;
 }
@@ -199,15 +202,17 @@ export async function listRules(year: number): Promise<{
   const overrides = await fetchOverrides(
     db,
     rules.map((r) => r.id),
-    year,
+    year - 10,
     year + 1,
   );
   const bd = hijriBdOffset();
+  const hints = ruleMonthHints(rules, overrides, year, bd);
   const items = rules.map((r) => {
     const ov = overrides.find((o) => o.ruleId === r.id && o.year === year);
     const info = activeInYear(r, year) ? resolveRuleYear(r, year, ov, bd) : null;
     return {
       ...r,
+      hint: hints.get(r.id) ?? null,
       label: compressAudience(r.audience, structure),
       yearInfo: info && {
         ...info,
@@ -219,7 +224,10 @@ export async function listRules(year: number): Promise<{
   });
   const datesNeeded = [year, year + 1].map((y) => ({
     year: y,
-    rules: missingManualDates(rules, overrides, y).map((r) => ({ id: r.id, title: r.title })),
+    rules: missingManualDates(rules, overrides, y).map((r) => ({
+      id: r.id,
+      title: hintedTitle(r.title, hints.get(r.id)),
+    })),
   }));
   return { year, bdOffset: bd, rules: items, datesNeeded };
 }

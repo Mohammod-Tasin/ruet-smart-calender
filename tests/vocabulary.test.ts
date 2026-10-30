@@ -79,3 +79,13 @@ describe('vocabulary helpers (docs/phase-13 §1)', () => {
     );
   });
 });
+
+describe('one month style', () => {
+  test('Sep, never Sept, in every date helper', async () => {
+    const { shortDate, stamp } = await import('@/lib/format');
+    expect(dayText(`${year}-09-20`)).toBe('20 Sep');
+    expect(rangeText(`${year}-09-20`, `${year}-10-02`)).toBe('20 Sep – 2 Oct');
+    expect(shortDate('2026-09-20')).toBe('20 Sep 2026');
+    expect(stamp('2026-09-20T10:00:00Z')).toBe('20 Sep 2026');
+  });
+});

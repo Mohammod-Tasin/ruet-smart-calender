@@ -38,6 +38,10 @@ export const WEEKDAYS_EN = [
   'Saturday',
 ];
 
+/** Display name of a rule: its title, plus a month hint when other rules share the title. */
+export const ruleName = (r: { title: string; hint?: string | null }) =>
+  r.hint ? `${r.title} (${r.hint})` : r.title;
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 const hijriPoint = (p: HijriPoint) =>
