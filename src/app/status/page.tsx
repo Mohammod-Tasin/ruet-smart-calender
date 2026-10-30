@@ -3,7 +3,7 @@ import { Suspense } from 'react';
 import { StatusBoard } from '@/components/StatusBoard';
 
 export const metadata: Metadata = {
-  title: 'সেমিস্টার স্ট্যাটাস · RUET',
+  title: 'স্ট্যাটাস · RUET',
   description: 'কোন বিভাগ ও সিরিজ এখন সেমিস্টারের কোন ধাপে আছে।',
 };
 

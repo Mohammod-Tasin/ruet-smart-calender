@@ -14,10 +14,10 @@
     "db:migrate": "node --env-file-if-exists=.env.local ./node_modules/drizzle-kit/bin.cjs migrate && tsx --env-file-if-exists=.env.local scripts/setup-app-role.ts --revoke-only",
     "db:setup-role": "tsx --env-file-if-exists=.env.local scripts/setup-app-role.ts",
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
+    "db:intake": "tsx --conditions react-server --env-file-if-exists=.env.local scripts/intake.ts",
     "db:create-admin": "tsx --env-file-if-exists=.env.local scripts/create-admin.ts",
     "test:auth": "tsx --env-file-if-exists=.env.local scripts/test-auth.ts",
     "test:holidays": "tsx --env-file-if-exists=.env.local scripts/test-holidays.ts",
-    "test:semesters": "tsx --env-file-if-exists=.env.local scripts/test-semesters.ts",
     "test:journey": "tsx --env-file-if-exists=.env.local scripts/test-journey.ts"
   },
   "dependencies": {

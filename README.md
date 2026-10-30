@@ -46,7 +46,7 @@ Run `db:setup-role` once after the first migrate (it is safe to repeat; it reset
 | `npm run db:setup-role`                                  | Create/reset `app_user` and its grants                           |
 | `npm run db:seed`                                        | Seed faculties, departments, active series, 2026 yearly holidays |
 | `npm run db:create-admin`                                | Create an admin (`-- --deactivate <email>` to deactivate)        |
-| `npm run test:auth` / `test:holidays` / `test:semesters` | End-to-end checks against a running dev server + database        |
+| `npm run test:auth` / `test:holidays` / `test:journey` | End-to-end checks against a running dev server + database        |
 
 ## Deploy (Vercel)
 

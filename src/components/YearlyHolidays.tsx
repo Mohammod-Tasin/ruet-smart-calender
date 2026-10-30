@@ -15,9 +15,8 @@ import type { ImpactGroup } from '@/core/journey/impact';
 import { AudiencePicker } from './AudiencePicker';
 import { hasChange, ImpactGroups, ImpactPreview } from './ImpactPreview';
 import { Sheet } from './Sheet';
-import { ThemeToggle } from './ThemeToggle';
 import { TrimHint } from './TrimHint';
-import { ToastProvider, useToast } from './Toast';
+import { useToast } from './Toast';
 
 interface RuleItem extends RuleDef {
   label: string;
@@ -43,20 +42,14 @@ const small =
 const field =
   'mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900';
 
-export function YearlyHolidays({ offDays }: { offDays: number[] }) {
-  return (
-    <ToastProvider>
-      <Yearly offDays={offDays} />
-    </ToastProvider>
-  );
-}
-
 type Dialog =
   | { kind: 'rule'; rule: RuleItem | null }
   | { kind: 'end'; rule: RuleItem }
-  | { kind: 'dates'; rule: RuleItem; year: number };
+  | { kind: 'dates'; rule: RuleItem; year: number }
+  | { kind: 'year'; year: number };
 
-function Yearly({ offDays }: { offDays: number[] }) {
+/** The yearly list, shown inside the admin calendar screen (needs the admin shell's toasts). */
+export function YearlyHolidays({ offDays }: { offDays: number[] }) {
   const router = useRouter();
   const toast = useToast();
   const params = useSearchParams();
@@ -90,7 +83,7 @@ function Yearly({ offDays }: { offDays: number[] }) {
   }, [year, version, router]);
 
   const reload = () => setVersion((v) => v + 1);
-  const setYear = (y: number) => router.replace(`/admin/yearly?year=${y}`);
+  const setYear = (y: number) => router.replace(`/admin?tab=calendar&view=yearly&year=${y}`);
 
   /** One call for every write; shows the outcome and reloads. */
   const send = useCallback(
@@ -150,15 +143,16 @@ function Yearly({ offDays }: { offDays: number[] }) {
   }
 
   const needed = data?.datesNeeded.filter((d) => d.rules.length > 0) ?? [];
+  const fixed = data?.rules.filter((r) => r.params.kind === 'GREGORIAN_FIXED') ?? [];
+  const others = data?.rules.filter((r) => r.params.kind !== 'GREGORIAN_FIXED') ?? [];
 
   return (
-    <main className="mx-auto max-w-5xl space-y-4 px-2 py-3 sm:px-4">
+    <div className="space-y-4">
       <header className="flex flex-wrap items-center gap-2 px-1">
-        <Link href="/admin" className={small}>
-          ← Calendar
+        <Link href="/admin?tab=calendar" className={small}>
+          ← ক্যালেন্ডার
         </Link>
-        <h1 className="mr-auto text-xl font-bold">বাৎসরিক ছুটি / Yearly holidays</h1>
-        <ThemeToggle />
+        <h2 className="mr-auto text-xl font-bold">বছরের ছুটির তালিকা</h2>
       </header>
 
       <div className="flex flex-wrap items-center gap-2 px-1">
@@ -199,43 +193,57 @@ function Yearly({ offDays }: { offDays: number[] }) {
         </p>
       )}
 
-      {needed.length > 0 && (
+      {needed.map((d) => (
         <section
-          aria-labelledby="needed"
-          className="space-y-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950"
+          key={d.year}
+          aria-label="তারিখ দিতে হবে"
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950"
         >
-          <h2 id="needed" className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-            তারিখ দিতে হবে / Dates needed
-          </h2>
-          {needed.map((d) => (
-            <div key={d.year}>
-              <p className="text-sm font-medium">{d.year}</p>
-              <ul className="mt-1 flex flex-wrap gap-2">
-                {d.rules.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      type="button"
-                      className={`${small} bg-white dark:bg-zinc-900`}
-                      onClick={() => {
-                        const rule = data!.rules.find((x) => x.id === r.id);
-                        if (rule) setDialog({ kind: 'dates', rule, year: d.year });
-                      }}
-                    >
-                      {r.title} · set {d.year} dates
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          <p className="min-w-0 flex-1 text-sm text-amber-950 dark:text-amber-50">
+            <b>
+              {bn(d.year)} সালের {bn(d.rules.length)}টি ছুটির তারিখ দিতে হবে:
+            </b>{' '}
+            {d.rules.map((r) => r.title).join(', ')}
+          </p>
+          <button
+            type="button"
+            className={`${small} bg-white dark:bg-zinc-900`}
+            onClick={() => setDialog({ kind: 'year', year: d.year })}
+          >
+            {bn(d.year)} সালের তারিখ দিন
+          </button>
         </section>
-      )}
+      ))}
 
       {data === null && !error ? (
         <p className="px-1 text-sm">Loading…</p>
       ) : (
         <div className="grid gap-2">
-          {data?.rules.map((r) => (
+          {fixed.length > 0 && (
+            <details className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+                প্রতি বছর একই — কিছু করতে হবে না ({bn(fixed.length)})
+              </summary>
+              <ul className="space-y-1 px-3 pb-3 text-sm">
+                {fixed.map((r) => (
+                  <li key={r.id} className="flex flex-wrap items-center gap-x-3">
+                    <span className="font-medium">{r.title}</span>
+                    <span className="text-zinc-600 dark:text-zinc-400">
+                      {ruleSummary(r.params)}
+                    </span>
+                    <button
+                      type="button"
+                      className="ml-auto text-xs underline"
+                      onClick={() => setDialog({ kind: 'rule', rule: r })}
+                    >
+                      বদলান
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {others.map((r) => (
             <RuleCard
               key={r.id}
               rule={r}
@@ -267,7 +275,9 @@ function Yearly({ offDays }: { offDays: number[] }) {
             />
           ))}
           {data?.rules.length === 0 && (
-            <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">No yearly holidays yet.</p>
+            <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">
+              এখনো কোনো বছরের ছুটি নেই।
+            </p>
           )}
         </div>
       )}
@@ -325,6 +335,19 @@ function Yearly({ offDays }: { offDays: number[] }) {
           </div>
         </Sheet>
       )}
+      {dialog?.kind === 'year' && data && (
+        <YearDatesForm
+          year={dialog.year}
+          rules={data.rules.filter((r) =>
+            data.datesNeeded.find((d) => d.year === dialog.year)?.rules.some((x) => x.id === r.id),
+          )}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null);
+            reload();
+          }}
+        />
+      )}
       {dialog?.kind === 'dates' && (
         <DatesForm
           rule={dialog.rule}
@@ -342,7 +365,7 @@ function Yearly({ offDays }: { offDays: number[] }) {
           }
         />
       )}
-    </main>
+    </div>
   );
 }
 
@@ -432,10 +455,10 @@ function RuleCard({
         {info && !info.skipped && isHijri && info.final && (
           <>
             <button type="button" className={small} disabled={busy} onClick={() => onShift(-1)}>
-              −1 day
+              −১ দিন
             </button>
             <button type="button" className={small} disabled={busy} onClick={() => onShift(1)}>
-              +1 day
+              +১ দিন
             </button>
             {!info.confirmed && (
               <button
@@ -444,14 +467,14 @@ function RuleCard({
                 disabled={busy}
                 onClick={onConfirm}
               >
-                Confirm
+                নিশ্চিত
               </button>
             )}
           </>
         )}
         {info && !info.skipped && (
           <button type="button" className={small} disabled={busy} onClick={onDates}>
-            Set dates
+            তারিখ দিন
           </button>
         )}
         {info && (
@@ -470,10 +493,10 @@ function RuleCard({
           </button>
         )}
         <button type="button" className={small} disabled={busy} onClick={onEdit}>
-          Edit rule
+          নিয়ম বদলান
         </button>
         <button type="button" className={small} disabled={busy} onClick={onEnd}>
-          End rule
+          নিয়ম শেষ
         </button>
       </div>
     </article>
@@ -947,6 +970,107 @@ function RuleForm({
           </p>
         )}
         <FormButtons label={rule ? `Save from ${fromYear}` : 'Add'} onClose={onClose} />
+      </form>
+    </Sheet>
+  );
+}
+
+/** One form for every yearly holiday that still needs dates: a from/to pair per rule. */
+function YearDatesForm({
+  year,
+  rules,
+  onClose,
+  onSaved,
+}: {
+  year: number;
+  rules: RuleItem[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [dates, setDates] = useState<Record<number, { start: string; end: string }>>({});
+  const [saving, setSaving] = useState(false);
+  const get = (id: number) => dates[id] ?? { start: '', end: '' };
+  const set = (id: number, v: { start: string; end: string }) =>
+    setDates((d) => ({ ...d, [id]: v }));
+  const filled = rules.filter((r) => get(r.id).start && get(r.id).end);
+  const bad = filled.some((r) => get(r.id).end < get(r.id).start);
+
+  async function save() {
+    setSaving(true);
+    let failed = 0;
+    for (const r of filled) {
+      const x = get(r.id);
+      const res = await api(`/api/admin/holiday-rules/${r.id}/overrides`, {
+        method: 'PUT',
+        body: { year, startDate: x.start, endDate: x.end },
+      });
+      if (!res.ok) {
+        failed++;
+        toast(`${r.title}: ${res.message}`, 'error');
+      }
+    }
+    setSaving(false);
+    if (failed < filled.length)
+      toast(`${bn(filled.length - failed)}টি ছুটির তারিখ সংরক্ষণ হয়েছে।`);
+    if (failed === 0) onSaved();
+  }
+
+  return (
+    <Sheet title={`${bn(year)} সালের তারিখ দিন`} onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          যেগুলোর তারিখ এখন জানেন সেগুলো দিন; বাকিগুলো খালি রাখুন।
+        </p>
+        {rules.map((r) => {
+          const x = get(r.id);
+          const len = r.params.kind === 'MANUAL_YEARLY' ? r.params.defaultLengthDays : 1;
+          return (
+            <fieldset key={r.id} className="space-y-1">
+              <legend className="text-sm font-medium">{r.title}</legend>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-xs">
+                  শুরু
+                  <input
+                    type="date"
+                    className={field}
+                    value={x.start}
+                    onChange={(e) =>
+                      set(r.id, {
+                        start: e.target.value,
+                        end:
+                          !x.end || x.end < e.target.value
+                            ? addDays(e.target.value, len - 1)
+                            : x.end,
+                      })
+                    }
+                  />
+                </label>
+                <label className="block text-xs">
+                  শেষ
+                  <input
+                    type="date"
+                    className={field}
+                    value={x.end}
+                    min={x.start || undefined}
+                    onChange={(e) => set(r.id, { ...x, end: e.target.value })}
+                  />
+                </label>
+              </div>
+            </fieldset>
+          );
+        })}
+        <FormButtons
+          label={saving ? 'সংরক্ষণ হচ্ছে…' : 'সংরক্ষণ'}
+          onClose={onClose}
+          disabled={saving || bad || filled.length === 0}
+        />
       </form>
     </Sheet>
   );

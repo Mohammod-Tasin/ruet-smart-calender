@@ -4,7 +4,14 @@ import { coveredSeriesIds } from '@/core/calendar/compress';
 import { parseOffDays, todayInDhaka } from '@/core/calendar/grid';
 import { addDays } from '@/core/calendar/hijri';
 import type { Structure } from '@/core/calendar/types';
-import { diffJourneys, groupImpacts, type ImpactGroup } from '@/core/journey/impact';
+import {
+  applyChange,
+  diffJourneys,
+  groupImpacts,
+  type ImpactGroup,
+  type OffItem,
+  type ProposedChange,
+} from '@/core/journey/impact';
 import {
   buildSlots,
   computeJourney,
@@ -16,7 +23,6 @@ import {
   type Position,
 } from '@/core/journey/journey';
 import { computeTasks, type Task } from '@/core/journey/tasks';
-import { applyChange, type OffItem, type ProposedChange } from '@/core/semester/impact';
 import { positionProblem, type BulkPositionsInput } from '@/core/validation/journey';
 import { getDb, type Executor } from '@/server/db/client';
 import { getStructure } from '@/server/db/queries';
@@ -158,6 +164,14 @@ export async function statusOn(date: string = todayInDhaka()) {
     summary[k] = (summary[k] ?? 0) + 1;
   }
   return { date, summary, series };
+}
+
+/** Series whose journey has ended (state GRADUATED on `date`). Used by `npm run db:intake`. */
+export async function graduatedSeries(date: string = todayInDhaka()) {
+  const { structure, journeys } = await loadAll(getDb());
+  return structure.series
+    .filter((s) => stateOn(journeys.get(s.id) ?? NO_JOURNEY, date).status === 'GRADUATED')
+    .map((s) => ({ id: s.id, label: seriesLabel(structure, s.id) }));
 }
 
 export async function seriesJourney(id: number, date: string = todayInDhaka()) {

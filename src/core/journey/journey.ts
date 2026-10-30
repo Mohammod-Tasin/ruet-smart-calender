@@ -289,6 +289,8 @@ export interface JourneyState {
   onSkippedWeek: boolean;
   confirmed: boolean;
   nextMilestone: Milestone | null;
+  /** First class day of the next semester (null in the last one). `confirmed` false = "~". */
+  nextSemester: { semesterNo: number; date: string; confirmed: boolean } | null;
   /** Weeks pushed back from the current semester to graduation. */
   delayWeeks: number;
   delayReasons: DelayReason[];
@@ -322,6 +324,7 @@ export function stateOn(j: Journey, date: string): JourneyState {
     onSkippedWeek: false,
     confirmed: false,
     nextMilestone: null,
+    nextSemester: null,
     delayWeeks: 0,
     delayReasons: [],
   };
@@ -350,6 +353,9 @@ export function stateOn(j: Journey, date: string): JourneyState {
       ? { semesterNo: null, phase: 'GRADUATION', date: j.graduation, confirmed: false }
       : null;
 
+  const nextSem = j.weeks
+    .slice(i + 1)
+    .find((w) => w.status === 'COUNTED' && w.semesterNo > now.semesterNo);
   const semStart = j.weeks.find((w) => w.semesterNo === now.semesterNo)!.weekStart;
   const reasons = delayReasons(j, semStart);
   return {
@@ -361,6 +367,9 @@ export function stateOn(j: Journey, date: string): JourneyState {
     onSkippedWeek: now.status === 'SKIPPED',
     confirmed: now.confirmed,
     nextMilestone,
+    nextSemester: nextSem
+      ? { semesterNo: nextSem.semesterNo, date: nextSem.weekStart, confirmed: nextSem.confirmed }
+      : null,
     delayWeeks: reasons.reduce((n, r) => n + r.weeks, 0),
     delayReasons: reasons,
   };

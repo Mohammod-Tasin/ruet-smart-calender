@@ -69,15 +69,7 @@ export const auditEntity = (
   tx: Tx,
   adminId: number,
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE',
-  entityType:
-    | 'RULE'
-    | 'RULE_OVERRIDE'
-    | 'SEMESTER'
-    | 'SEMESTER_CHECKPOINT'
-    | 'SEMESTER_WEEK_OVERRIDE'
-    | 'SEMESTER_PIN'
-    | 'SERIES_POSITION'
-    | 'ACADEMIC_SETTINGS',
+  entityType: 'RULE' | 'RULE_OVERRIDE' | 'SERIES_POSITION' | 'ACADEMIC_SETTINGS',
   entityId: number,
   before: unknown,
   after: unknown,

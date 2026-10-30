@@ -3,10 +3,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { audienceFromSeries } from '@/core/calendar/audience';
 import { coveredSeriesIds } from '@/core/calendar/compress';
 import { isRealDate } from '@/core/validation/holidays-query';
-import { api, type ApiStructure, type Conflict, type FullHoliday } from '@/lib/api';
-import { dateRange, stamp } from '@/lib/format';
-import { AudiencePicker } from './AudiencePicker';
+import { api, type ApiStructure, type FullHoliday } from '@/lib/api';
+import { stamp } from '@/lib/format';
+import { AudienceChips } from './AudienceChips';
 import { ImpactPreview } from './ImpactPreview';
+import { OverlapLine, useOverlap } from './OverlapLine';
 import { Sheet } from './Sheet';
 import { TrimHint } from './TrimHint';
 
@@ -81,7 +82,7 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
           end: h.endDate,
           selected: coveredSeriesIds(h.audience, rest.structure),
           excludeId: h.id,
-          setBy: `Created by ${h.createdBy.name} · ${stamp(h.createdAt)}. Last edited by ${h.updatedBy.name} · ${stamp(h.updatedAt)}.`,
+          setBy: `তৈরি: ${h.createdBy.name} · ${stamp(h.createdAt)}। সর্বশেষ সম্পাদনা: ${h.updatedBy.name} · ${stamp(h.updatedAt)}।`,
         }}
       />
     );
@@ -92,11 +93,11 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
       </p>
     );
   } else {
-    body = <p className="text-sm">Loading…</p>;
+    body = <p className="text-sm">লোড হচ্ছে…</p>;
   }
 
   return (
-    <Sheet title={target.kind === 'new' ? 'New holiday' : 'Edit holiday'} onClose={rest.onClose}>
+    <Sheet title={target.kind === 'new' ? 'ছুটি দিন' : 'ছুটি সম্পাদনা'} onClose={rest.onClose}>
       {body}
     </Sheet>
   );
@@ -116,16 +117,17 @@ function HolidayForm({
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
   const [selected, setSelected] = useState(initial.selected);
-  const [conflicts, setConflicts] = useState<Conflict[]>([]);
-  const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const audience = useMemo(() => audienceFromSeries(selected, structure), [selected, structure]);
   const datesOk = isRealDate(start) && isRealDate(end) && end >= start;
   const checkable = datesOk && audience.length > 0;
-  const shown = checkable ? conflicts : [];
-  const audienceKey = JSON.stringify(audience);
+  const {
+    conflicts: shown,
+    checking,
+    setConflicts,
+  } = useOverlap(checkable, start, end, audience, initial.excludeId);
   // What this save would do to the semesters (an edit replaces the old version of itself).
   const impactChange = useMemo(
     () =>
@@ -138,38 +140,11 @@ function HolidayForm({
     [checkable, initial.excludeId, start, end, audience],
   );
 
-  // Debounced live overlap check while the admin edits dates or audience.
-  useEffect(() => {
-    if (!checkable) return;
-    let live = true;
-    const t = setTimeout(async () => {
-      setChecking(true);
-      const r = await api<{ conflicts: Conflict[] }>('/api/admin/holidays/check-overlap', {
-        method: 'POST',
-        body: {
-          title: 'check', // required by the shared schema, irrelevant to overlap
-          startDate: start,
-          endDate: end,
-          audience: JSON.parse(audienceKey),
-          excludeId: initial.excludeId,
-        },
-      });
-      if (!live) return;
-      setChecking(false);
-      setConflicts(r.ok ? r.data.conflicts : []);
-    }, 400);
-    return () => {
-      live = false;
-      clearTimeout(t);
-    };
-  }, [checkable, start, end, audienceKey, initial.excludeId]);
-
   async function save() {
     setError(null);
-    if (!title.trim()) return setError('Please enter a title.');
-    if (!datesOk)
-      return setError('Please pick valid From and To dates (To must not be before From).');
-    if (audience.length === 0) return setError('Please choose who is off.');
+    if (!title.trim()) return setError('শিরোনাম লিখুন।');
+    if (!datesOk) return setError('শুরু ও শেষের সঠিক তারিখ দিন (শেষ তারিখ শুরুর আগে হবে না)।');
+    if (audience.length === 0) return setError('কারা ছুটিতে তা বেছে নিন।');
 
     const confirmOverlap = shown.length > 0 ? true : undefined;
     const editing = initial.excludeId !== undefined;
@@ -196,7 +171,7 @@ function HolidayForm({
       if (start !== initial.start) patch.startDate = start;
       if (end !== initial.end) patch.endDate = end;
       if (!sameSet(selected, initial.selected)) patch.audience = audience;
-      if (Object.keys(patch).length === 0) return onDone('No changes to save.');
+      if (Object.keys(patch).length === 0) return onDone('বদলানোর মতো কিছু নেই।');
       request = api(`/api/admin/holidays/${initial.excludeId}`, {
         method: 'PATCH',
         body: { ...patch, confirmOverlap },
@@ -205,12 +180,12 @@ function HolidayForm({
     setSaving(true);
     const r = await request;
     setSaving(false);
-    if (r.ok) return onDone(editing ? 'Holiday updated.' : 'Holiday created.');
+    if (r.ok) return onDone(editing ? 'ছুটি বদলানো হয়েছে।' : 'ছুটি যোগ হয়েছে।');
     if (r.code === 'OVERLAP' && r.conflicts) {
       setConflicts(r.conflicts);
-      return setError('This overlaps other holidays. Review them below, then press "Save anyway".');
+      return setError('অন্য ছুটির সাথে মিলে যাচ্ছে। দেখে নিয়ে "তবুও সংরক্ষণ" চাপুন।');
     }
-    setError(r.status === 401 ? 'Your session expired. Please sign in again.' : r.message);
+    setError(r.status === 401 ? 'সেশন শেষ হয়ে গেছে। আবার লগইন করুন।' : r.message);
   }
 
   return (
@@ -222,7 +197,7 @@ function HolidayForm({
       className="space-y-4"
     >
       <label className="block text-sm font-medium">
-        Title
+        শিরোনাম
         <input
           className={field}
           value={title}
@@ -232,7 +207,7 @@ function HolidayForm({
         />
       </label>
       <label className="block text-sm font-medium">
-        Note <span className="font-normal text-zinc-500">(why; shown to everyone)</span>
+        নোট <span className="font-normal text-zinc-500">(কারণ; সবাই দেখবে)</span>
         <textarea
           className={field}
           rows={2}
@@ -252,7 +227,7 @@ function HolidayForm({
       </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm font-medium">
-          From
+          শুরু
           <input
             type="date"
             className={field}
@@ -262,7 +237,7 @@ function HolidayForm({
           />
         </label>
         <label className="block text-sm font-medium">
-          To
+          শেষ
           <input
             type="date"
             className={field}
@@ -283,25 +258,9 @@ function HolidayForm({
         }}
       />
 
-      <AudiencePicker structure={structure} selected={selected} onChange={setSelected} />
+      <AudienceChips structure={structure} selected={selected} onChange={setSelected} />
 
-      <div aria-live="polite">
-        {checking && <p className="text-sm text-zinc-500">Checking for overlaps…</p>}
-        {shown.length > 0 && (
-          <section className="space-y-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950">
-            <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-              ⚠ Overlaps {shown.length === 1 ? 'another holiday' : `${shown.length} other holidays`}
-            </h3>
-            {shown.map((c) => (
-              <ConflictCard
-                key={c.id}
-                c={c}
-                onEdit={() => typeof c.id === 'number' && onEditExisting(c.id)}
-              />
-            ))}
-          </section>
-        )}
-      </div>
+      <OverlapLine conflicts={shown} checking={checking} onEdit={onEditExisting} />
 
       <ImpactPreview change={impactChange} />
 
@@ -317,7 +276,7 @@ function HolidayForm({
           disabled={saving}
           className={`rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${shown.length ? 'bg-amber-600' : 'bg-indigo-600'}`}
         >
-          {saving ? 'Saving…' : shown.length ? 'Save anyway' : 'Save'}
+          {saving ? 'সংরক্ষণ হচ্ছে…' : shown.length ? 'তবুও সংরক্ষণ' : 'সংরক্ষণ'}
         </button>
         <button
           type="button"
@@ -325,40 +284,9 @@ function HolidayForm({
           onClick={onClose}
           className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium disabled:opacity-60 dark:border-zinc-700"
         >
-          Cancel
+          বাতিল
         </button>
       </div>
     </form>
-  );
-}
-
-function ConflictCard({ c, onEdit }: { c: Conflict; onEdit: () => void }) {
-  return (
-    <article className="rounded-md bg-white p-2 text-sm dark:bg-zinc-900">
-      <p className="font-medium">{c.title}</p>
-      <p className="text-zinc-600 dark:text-zinc-400">
-        {c.label} · {dateRange(c.startDate, c.endDate)}
-      </p>
-      <p>
-        Clash: <b>{c.sharedLabel}</b> on {dateRange(c.overlap.startDate, c.overlap.endDate)}
-      </p>
-      {c.note && <p className="whitespace-pre-line">{c.note}</p>}
-      <p className="text-xs text-zinc-500">
-        Set by {c.updatedBy.name} · {stamp(c.updatedAt)}
-      </p>
-      {c.source === 'RULE' ? (
-        <p className="mt-1 text-xs text-zinc-500">
-          Yearly holiday: change it on the Yearly holidays page.
-        </p>
-      ) : (
-        <button
-          type="button"
-          onClick={onEdit}
-          className="mt-1 rounded border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-700"
-        >
-          Edit existing
-        </button>
-      )}
-    </article>
   );
 }

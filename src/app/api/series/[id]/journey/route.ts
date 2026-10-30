@@ -1,4 +1,4 @@
-import { statusQuerySchema } from '@/core/validation/semesters';
+import { statusQuerySchema } from '@/core/validation/journey';
 import { internalError, jsonError } from '@/server/http/errors';
 import { failure, parseId } from '@/server/http/result';
 import { seriesJourney } from '@/server/services/journey';

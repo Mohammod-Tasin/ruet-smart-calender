@@ -154,6 +154,8 @@ describe('the CSE-23 example (real 2026 rules)', () => {
       date: '2026-11-14',
       semesterNo: 4,
     });
+    // 3-1 CLASS week 1 is 21 Nov (spec §4): the headline's "৩-১ শুরু ~২১ নভেম্বর".
+    expect(s.nextSemester).toEqual({ semesterNo: 5, date: '2026-11-21', confirmed: false });
     const winter = s.delayReasons.find((r) => r.reason === 'শীতকালীন ছুটি');
     expect(winter?.weeks).toBe(2);
     expect(s.delayWeeks).toBe(s.delayReasons.reduce((n, r) => n + r.weeks, 0));

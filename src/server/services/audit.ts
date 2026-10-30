@@ -1,22 +1,10 @@
 import 'server-only';
-import { and, desc, eq, like, type SQL } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { getDb } from '@/server/db/client';
 import { admins, auditLog } from '@/server/db/schema';
 
-/**
- * Change history, newest first. Any admin may read it.
- * `holidayId`: one holiday. `semesterId`: everything done to one semester (its checkpoints,
- * week overrides and pins too). Neither: the latest changes overall.
- */
-export async function listAudit(filter: { holidayId?: number; semesterId?: number } = {}) {
-  const conditions: SQL[] = [];
-  if (filter.holidayId !== undefined) conditions.push(eq(auditLog.holidayId, filter.holidayId));
-  if (filter.semesterId !== undefined) {
-    conditions.push(
-      like(auditLog.entityType, 'SEMESTER%'),
-      eq(auditLog.entityId, filter.semesterId),
-    );
-  }
+/** Change history, newest first. Any admin may read it. No filter: the latest 100 changes. */
+export async function listAudit(filter: { holidayId?: number } = {}) {
   const rows = await getDb()
     .select({
       id: auditLog.id,
@@ -31,7 +19,7 @@ export async function listAudit(filter: { holidayId?: number; semesterId?: numbe
     })
     .from(auditLog)
     .innerJoin(admins, eq(admins.id, auditLog.adminId))
-    .where(and(...conditions))
+    .where(filter.holidayId === undefined ? undefined : eq(auditLog.holidayId, filter.holidayId))
     .orderBy(desc(auditLog.at), desc(auditLog.id))
     .limit(100);
 

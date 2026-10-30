@@ -1,11 +1,11 @@
-import { statusQuerySchema } from '@/core/validation/semesters';
+import { statusQuerySchema } from '@/core/validation/journey';
 import { internalError, jsonError } from '@/server/http/errors';
-import { statusOn } from '@/server/services/semesters';
+import { statusOn } from '@/server/services/journey';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// State of every series' semester on a date (default today, Asia/Dhaka).
+// Matrix data: every active series' journey state on a date (default today, Asia/Dhaka).
 export async function GET(req: Request) {
   const q = statusQuerySchema.safeParse({
     date: new URL(req.url).searchParams.get('date') ?? undefined,

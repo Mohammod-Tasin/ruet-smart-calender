@@ -1,11 +1,11 @@
-import { Suspense } from 'react';
-import { YearlyHolidays } from '@/components/YearlyHolidays';
-import { parseOffDays } from '@/core/calendar/grid';
+import { redirect } from 'next/navigation';
 
-export default function YearlyPage() {
-  return (
-    <Suspense fallback={<p className="p-4 text-sm">Loading…</p>}>
-      <YearlyHolidays offDays={parseOffDays(process.env.WEEKLY_OFF_DAYS)} />
-    </Suspense>
-  );
+// The yearly list now lives inside the admin calendar screen; keep old links working.
+export default async function YearlyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ year?: string }>;
+}) {
+  const { year } = await searchParams;
+  redirect(`/admin?tab=calendar&view=yearly${year ? `&year=${encodeURIComponent(year)}` : ''}`);
 }

@@ -1,75 +1,18 @@
 import { describe, expect, test } from 'vitest';
-import {
-  applyChange,
-  diffTimelines,
-  groupImpacts,
-  milestones,
-  type OffItem,
-} from '@/core/semester/impact';
-import { computeTimeline, DEFAULT_TEMPLATE } from '@/core/semester/timeline';
+import { applyChange, groupImpacts, type JourneyDiff, type OffItem } from '@/core/journey/impact';
 
-const tl = (...ranges: [string, string][]) =>
-  computeTimeline({
-    startDate: '2026-10-03',
-    template: DEFAULT_TEMPLATE,
-    isOffDay: (d) => ranges.some(([s, e]) => s <= d && d <= e),
-  });
-
-describe('diffTimelines', () => {
-  test('no change', () => {
-    expect(diffTimelines(tl(), tl())).toBeNull();
-    // a partial week changes nothing
-    expect(diffTimelines(tl(), tl(['2026-10-17', '2026-10-18']))).toBeNull();
-  });
-
-  test('a full week off moves everything after it by one week', () => {
-    const d = diffTimelines(tl(), tl(['2026-10-17', '2026-10-21']))!;
-    expect(d.endShiftWeeks).toBe(1);
-    expect(d.changes).toEqual([
-      { segment: 1, phase: 'MID_BREAK', before: '2026-11-21', after: '2026-11-28' },
-      { segment: 2, phase: 'CLASS', before: '2026-11-28', after: '2026-12-05' },
-      { segment: 3, phase: 'VIVA', before: '2027-01-09', after: '2027-01-16' },
-      { segment: 4, phase: 'FINALS', before: '2027-01-16', after: '2027-01-23' },
-    ]);
-  });
-
-  test('a late holiday only moves the late phases', () => {
-    const d = diffTimelines(tl(), tl(['2027-01-16', '2027-01-20']))!;
-    expect(d.changes).toEqual([
-      { segment: 4, phase: 'FINALS', before: '2027-01-16', after: '2027-01-23' },
-    ]);
-    expect(d.endShiftWeeks).toBe(1);
-  });
-
-  test('removing a holiday moves things earlier', () => {
-    const d = diffTimelines(tl(['2026-10-17', '2026-10-21']), tl())!;
-    expect(d.endShiftWeeks).toBe(-1);
-    expect(d.changes[0]).toMatchObject({ before: '2026-11-28', after: '2026-11-21' });
-  });
-
-  test('milestones are the first counted week of each block', () => {
-    expect(milestones(tl()).map((m) => m.date)).toEqual([
-      '2026-10-03',
-      '2026-11-21',
-      '2026-11-28',
-      '2027-01-09',
-      '2027-01-16',
-    ]);
-  });
-});
+const diff = (endShiftWeeks: number): JourneyDiff => ({ endShiftWeeks, changes: [] });
 
 describe('groupImpacts', () => {
-  test('series with the same effect are reported together', () => {
-    const shifted = diffTimelines(tl(), tl(['2026-10-17', '2026-10-21']))!;
-    const later = diffTimelines(tl(), tl(['2027-01-16', '2027-01-20']))!;
+  test('series with the same effect are reported together, biggest shift first', () => {
     const groups = groupImpacts([
-      { seriesId: 1, label: 'EEE-21', diff: shifted },
-      { seriesId: 2, label: 'EEE-22', diff: shifted },
-      { seriesId: 3, label: 'CSE-23', diff: later },
+      { seriesId: 3, label: 'CSE-23', diff: diff(2) },
+      { seriesId: 1, label: 'EEE-21', diff: diff(1) },
+      { seriesId: 2, label: 'EEE-22', diff: diff(1) },
     ]);
     expect(groups).toHaveLength(2);
-    expect(groups[0]).toMatchObject({ labels: ['EEE-21', 'EEE-22'], seriesIds: [1, 2] });
-    expect(groups[0]!.endShiftWeeks).toBe(1);
+    expect(groups[0]).toMatchObject({ labels: ['CSE-23'], endShiftWeeks: 2 });
+    expect(groups[1]).toMatchObject({ labels: ['EEE-21', 'EEE-22'], seriesIds: [1, 2] });
   });
 
   test('nothing affected, nothing reported', () => {

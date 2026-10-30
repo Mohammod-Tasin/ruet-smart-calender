@@ -5,7 +5,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 const TABS = [
   { href: '/', label: 'ক্যালেন্ডার' },
-  { href: '/status', label: 'সেমিস্টার স্ট্যাটাস' },
+  { href: '/status', label: 'স্ট্যাটাস' },
 ];
 
 const key = (path: string) => `tab-query:${path}`;

@@ -1,4 +1,5 @@
 import { msOf } from '../calendar/hijri';
+import type { AudienceEntry } from '../calendar/types';
 import type { Journey, JPhase } from './journey';
 
 // Impact preview on the journey engine. Same response shape as the Phase 10 impact
@@ -90,4 +91,34 @@ export function groupImpacts(
     groups.set(key, g);
   }
   return [...groups.values()].sort((x, y) => (y.endShiftWeeks ?? 0) - (x.endShiftWeeks ?? 0));
+}
+
+// --- Applying a proposed change to a list of off days ----------------------------------------
+
+export interface ProposedChange {
+  /** Ids of existing holidays / rule occurrences ("rule:3:2026") that go away. */
+  removeIds?: (number | string)[];
+  /** Holidays that would be added. Editing = remove the old one and add the new one. */
+  add?: { startDate: string; endDate: string; audience: AudienceEntry[]; title?: string }[];
+}
+
+export interface OffItem {
+  id: number | string;
+  title: string;
+  startDate: string;
+  endDate: string;
+  audience: AudienceEntry[];
+}
+
+export function applyChange(items: OffItem[], change: ProposedChange): OffItem[] {
+  const gone = new Set((change.removeIds ?? []).map(String));
+  const kept = items.filter((x) => !gone.has(String(x.id)));
+  const added = (change.add ?? []).map((a, i) => ({
+    id: `proposed:${i}`,
+    title: a.title ?? 'Proposed holiday',
+    startDate: a.startDate,
+    endDate: a.endDate,
+    audience: a.audience,
+  }));
+  return [...kept, ...added];
 }

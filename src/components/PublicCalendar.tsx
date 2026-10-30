@@ -1,21 +1,19 @@
 'use client';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { appliesToDepartment } from '@/core/calendar/audience';
 import { appliesToSeries } from '@/core/calendar/compress';
 import { holidaysByDate, parseMonthKey, shiftMonth, todayInDhaka } from '@/core/calendar/grid';
-import { useMonthHolidays, useStructure } from '@/lib/hooks';
+import { useMonthHolidays, useStatus, useStructure } from '@/lib/hooks';
+import { findSeries } from '@/lib/journey-ui';
+import { useMySeries } from '@/lib/my-series';
 import { longDate } from '@/lib/format';
 import { HolidayCard } from './HolidayCard';
 import { MonthGrid } from './MonthGrid';
 import { MonthHeader } from './MonthHeader';
+import { MySeriesBar } from './MySeriesBar';
 import { Sheet } from './Sheet';
-import { SeriesStateLine } from './SeriesStateLine';
 import { ThemeToggle } from './ThemeToggle';
 import { TopNav } from './TopNav';
-
-const select =
-  'rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900';
 
 export function PublicCalendar({ offDays }: { offDays: number[] }) {
   const router = useRouter();
@@ -25,8 +23,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
   const [openDate, setOpenDate] = useState<string | null>(null);
 
   const ym = parseMonthKey(params.get('m')) ? params.get('m')! : today.slice(0, 7);
-  const deptCode = params.get('dept');
-  const seriesId = Number(params.get('series')) || null;
+  const onlyMine = params.get('all') !== '1'; // "শুধু আমার" is on unless ?all=1
 
   const { structure, failed: structureFailed } = useStructure();
   const { cells, holidays, failed } = useMonthHolidays(ym, offDays);
@@ -41,21 +38,17 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const seriesRow = structure?.series.find((s) => s.id === seriesId);
-  const dept = structure?.departments.find((d) =>
-    seriesRow ? d.id === seriesRow.departmentId : d.code === deptCode,
-  );
+  const mine = useMySeries();
+  const mineId = structure && mine ? findSeries(structure, mine.dept, mine.year)?.id : undefined;
+  const { data: status } = useStatus(today);
+  const filtering = onlyMine && !!mineId;
 
   const visible = useMemo(() => {
     if (!holidays || !structure) return null;
-    return holidays.filter((h) =>
-      seriesRow
-        ? appliesToSeries(h.audience, structure, seriesRow.id)
-        : dept
-          ? appliesToDepartment(h.audience, structure, dept.id)
-          : true,
-    );
-  }, [holidays, structure, seriesRow, dept]);
+    return filtering
+      ? holidays.filter((h) => appliesToSeries(h.audience, structure, mineId!))
+      : holidays;
+  }, [holidays, structure, filtering, mineId]);
 
   const goto = (key: string) => setParams({ m: key });
   const dayHolidays =
@@ -76,74 +69,35 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
         onToday={() => goto(today.slice(0, 7))}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-sm">
-          Department
-          <select
-            className={select}
-            disabled={!structure}
-            value={dept?.code ?? ''}
-            onChange={(e) => setParams({ dept: e.target.value || null, series: null })}
-          >
-            <option value="">All</option>
-            {structure?.departments.map((d) => (
-              <option key={d.id} value={d.code}>
-                {d.code}
-              </option>
-            ))}
-          </select>
+      <MySeriesBar
+        structure={structure}
+        entry={mineId ? status?.series.find((x) => x.seriesId === mineId) : undefined}
+        date={today}
+      />
+      {mineId && (
+        <label className="flex items-center gap-2 px-1 text-sm">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-indigo-600"
+            checked={onlyMine}
+            onChange={(e) => setParams({ all: e.target.checked ? null : '1' })}
+          />
+          শুধু আমার
         </label>
-        {dept && (
-          <label className="flex items-center gap-1.5 text-sm">
-            Series
-            <select
-              className={select}
-              value={seriesRow?.id ?? ''}
-              onChange={(e) =>
-                setParams(
-                  e.target.value
-                    ? { series: e.target.value, dept: null }
-                    : { series: null, dept: dept.code },
-                )
-              }
-            >
-              <option value="">All</option>
-              {structure?.series
-                .filter((s) => s.departmentId === dept.id)
-                .sort((a, b) => b.intakeYear - a.intakeYear)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {dept.code}-{String(s.intakeYear % 100).padStart(2, '0')}
-                  </option>
-                ))}
-            </select>
-          </label>
-        )}
-        {(dept || seriesRow) && (
-          <button
-            type="button"
-            className="text-sm underline"
-            onClick={() => setParams({ dept: null, series: null })}
-          >
-            Clear filter
-          </button>
-        )}
-      </div>
-
-      {seriesRow && <SeriesStateLine seriesId={seriesRow.id} today={today} />}
+      )}
 
       {failed || structureFailed ? (
         <div
           role="alert"
           className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
         >
-          <p>We couldn’t load the holidays. Please check your connection and try again.</p>
+          <p>ছুটির তালিকা লোড করা যায়নি। ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।</p>
           <button
             type="button"
             className="mt-2 rounded-md bg-red-700 px-3 py-1.5 font-medium text-white"
             onClick={() => window.location.reload()}
           >
-            Try again
+            আবার চেষ্টা করুন
           </button>
         </div>
       ) : (
@@ -151,8 +105,8 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
       )}
 
       <p className="px-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Shaded days are weekly off days (Thu, Fri). Striped bars are tentative: they depend on moon
-        sighting. Tap a day for details.
+        ধূসর দাগ কাটা দিনগুলো সাপ্তাহিক ছুটি (বৃহস্পতি, শুক্র)। ডোরাকাটা বার সম্ভাব্য: চাঁদ দেখার
+        উপর নির্ভর করে। বিস্তারিত দেখতে দিনে ট্যাপ করুন।
       </p>
 
       {openDate && (
@@ -160,7 +114,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
           <div className="space-y-3">
             {dayHolidays.length === 0 ? (
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                No holidays on this day{dept || seriesRow ? ' for the selected filter' : ''}.
+                এই দিনে কোনো ছুটি নেই{filtering ? ' (আপনার সিরিজের জন্য)' : ''}।
               </p>
             ) : (
               dayHolidays.map((h) => <HolidayCard key={h.id} holiday={h} />)
@@ -174,7 +128,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
                   setOpenDate(null);
                 }}
               >
-                Go to that month
+                ওই মাসে যান
               </button>
             )}
           </div>

@@ -338,14 +338,12 @@ HIJRI_BD_DAY_OFFSET=1  # added to the Saudi (umalqura) Hijri date; Bangladesh si
    "dates needed" panel, spanning-bar calendar with lane algorithm.
 10. ✅ Semester engine (superseded by Phase 12; old code removed in 12b).
 11. ✅ Semester UI (superseded by Phase 12; removed in 12b).
-12. Series journey (§15), spec `docs/phase-12-journey-spec.md`.
-    - 12a: migration to `series_positions`, `src/core/journey/`,
-      `computeTasks`, APIs, tests. No UI. Old semester tables/routes/UI stay
-      working; only `/api/admin/impact` moves to the journey engine.
-    - 12b: admin UI (Home / Calendar / Series board), public UI (my series,
-      status matrix, series sheet), drop old tables + routes + UI, replace
-      `test-semesters.ts` flows, script creating the 2026 intake series for all
-      departments, mark graduated series inactive.
+12. ✅ Series journey (§15), spec `docs/phase-12-journey-spec.md`.
+    - 12a: migration to `series_positions`, `src/core/journey/`, `computeTasks`, APIs, tests.
+    - 12b: admin UI (হোম / ক্যালেন্ডার / সিরিজ বোর্ড at `/admin?tab=`; the yearly list is
+      `?tab=calendar&view=yearly`), public UI (আমার সিরিজ, status matrix, series sheet),
+      old semester tables/routes/UI removed (migration 0005), `npm run db:intake`
+      (`--year 2026` creates an intake; `--graduate [--apply]` marks finished series inactive).
 
 Full reference for 9–11: `docs/phase-9-11-spec.md` (its §4 semester model is
 replaced by Phase 12).

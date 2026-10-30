@@ -86,7 +86,7 @@ async function main() {
 
   let seriesId: number | null = null;
   try {
-    const board = await fetch(`${BASE}/api/status/journey?t=${Date.now()}`);
+    const board = await fetch(`${BASE}/api/status?t=${Date.now()}`);
     const status = (await board.json()) as {
       series: { seriesId: number; series: string; state: { status: string } }[];
     };

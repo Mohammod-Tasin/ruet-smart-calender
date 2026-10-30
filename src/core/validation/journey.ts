@@ -6,6 +6,7 @@ import {
   SEMESTERS,
   type JourneyStructure,
 } from '../journey/journey';
+import { audience } from './holiday';
 import { isRealDate } from './holidays-query';
 
 const date = z.string().refine(isRealDate, 'must be a real date, YYYY-MM-DD');
@@ -58,3 +59,27 @@ export function positionProblem(
     ? null
     : `${phase} week ${weekNo} does not exist in the semester structure.`;
 }
+
+const removeId = z.union([
+  z.number().int().positive(),
+  z.string().regex(/^rule:\d+:\d{4}$/, 'a holiday id or "rule:<id>:<year>"'),
+]);
+/** A proposed holiday change, for the impact preview. */
+export const impactSchema = z
+  .object({
+    removeIds: z.array(removeId).max(50).optional(),
+    add: z
+      .array(
+        z.object({
+          startDate: date,
+          endDate: date,
+          audience,
+          title: z.string().max(100).optional(),
+        }),
+      )
+      .max(20)
+      .optional(),
+  })
+  .refine((v) => (v.removeIds?.length ?? 0) + (v.add?.length ?? 0) > 0, 'describe a change');
+
+export const statusQuerySchema = z.object({ date: date.optional() });

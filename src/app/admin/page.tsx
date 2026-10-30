@@ -1,6 +1,11 @@
+import { Suspense } from 'react';
 import { AdminApp } from '@/components/AdminApp';
 import { parseOffDays } from '@/core/calendar/grid';
 
 export default function AdminPage() {
-  return <AdminApp offDays={parseOffDays(process.env.WEEKLY_OFF_DAYS)} />;
+  return (
+    <Suspense fallback={<p className="p-4 text-sm">লোড হচ্ছে…</p>}>
+      <AdminApp offDays={parseOffDays(process.env.WEEKLY_OFF_DAYS)} />
+    </Suspense>
+  );
 }

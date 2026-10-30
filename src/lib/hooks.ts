@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { buildMonthGrid, parseMonthKey, type GridCell } from '@/core/calendar/grid';
-import { loadHolidays, loadStructure, type ApiStructure, type PublicHoliday } from './api';
+import { api, loadHolidays, loadStructure, type ApiStructure, type PublicHoliday } from './api';
+import type { StatusResponse } from './journey-ui';
 
 export function useStructure(): { structure: ApiStructure | null; failed: boolean } {
   const [state, setState] = useState<{ structure: ApiStructure | null; failed: boolean }>({
@@ -15,6 +16,28 @@ export function useStructure(): { structure: ApiStructure | null; failed: boolea
     );
   }, []);
   return state;
+}
+
+/**
+ * Every series' state on `date`. `bust` skips the 60 s CDN copy (admin); bump `version` to reload.
+ * `loading` is true until the response for exactly this date and version has arrived.
+ */
+export function useStatus(date: string, opts: { bust?: boolean; version?: number } = {}) {
+  const key = `${date}|${opts.version ?? 0}`;
+  const [res, setRes] = useState<{ key: string; data?: StatusResponse; error?: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    let live = true;
+    api<StatusResponse>(`/api/status?date=${date}${opts.bust ? `&_=${Date.now()}` : ''}`).then(
+      (r) => live && setRes(r.ok ? { key, data: r.data } : { key, error: r.message }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [key, date, opts.bust]);
+  const current = res?.key === key ? res : null;
+  return { data: current?.data, error: current?.error, loading: !current };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { impactSchema } from '@/core/validation/semesters';
+import { impactSchema } from '@/core/validation/journey';
 import { adminMutation } from '@/server/http/mutation';
 import { ok } from '@/server/services/shared';
 import { computeImpact } from '@/server/services/journey';
