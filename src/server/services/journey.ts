@@ -23,10 +23,20 @@ import {
   type Position,
 } from '@/core/journey/journey';
 import { computeTasks, type Task } from '@/core/journey/tasks';
-import { positionProblem, type BulkPositionsInput } from '@/core/validation/journey';
+import {
+  positionProblem,
+  type BulkPositionsInput,
+  type ScheduleInput,
+} from '@/core/validation/journey';
+import {
+  fieldsFromStructure,
+  scheduleProblem,
+  structureFromFields,
+  type ScheduleFields,
+} from '@/core/journey/schedule';
 import { getDb, type Executor } from '@/server/db/client';
 import { getStructure } from '@/server/db/queries';
-import { academicSettings, seriesPositions } from '@/server/db/schema';
+import { academicSettings, seriesPositions, seriesSemesterSchedule } from '@/server/db/schema';
 import { getOffDays } from './off-days';
 import { listRules, ruleOccurrences } from './rules';
 import { auditEntity, fail, lockWrites, ok, type Result } from './shared';
@@ -38,6 +48,15 @@ export interface PositionRecord extends Position {
 }
 
 type DbStructure = Awaited<ReturnType<typeof getStructure>>;
+
+/** One series' semester that differs from the default, or whose mid-term break was answered. */
+export interface ScheduleRecord {
+  id: number;
+  seriesId: number;
+  semesterNo: number;
+  structure: JourneyStructure | null;
+  midBreakConfirmed: boolean;
+}
 
 const NO_JOURNEY: Journey = { weeks: [], semesters: [], graduation: null };
 
@@ -71,6 +90,17 @@ async function loadPositions(x: Executor): Promise<PositionRecord[]> {
     weekNo: r.weekNo,
     kind: r.kind,
     note: r.note,
+  }));
+}
+
+async function loadSchedules(x: Executor): Promise<ScheduleRecord[]> {
+  const rows = await x.select().from(seriesSemesterSchedule);
+  return rows.map((r) => ({
+    id: r.id,
+    seriesId: r.seriesId,
+    semesterNo: r.semesterNo,
+    structure: r.structure,
+    midBreakConfirmed: r.midBreakConfirmed,
   }));
 }
 
@@ -113,6 +143,7 @@ function journeysFor(
   items: OffItem[],
   structure: DbStructure,
   settings: JourneyStructure,
+  schedules: ScheduleRecord[],
 ): Map<number, Journey> {
   const bySeries = new Map<number, PositionRecord[]>();
   for (const p of positions) bySeries.set(p.seriesId, [...(bySeries.get(p.seriesId) ?? []), p]);
@@ -121,9 +152,15 @@ function journeysFor(
   return new Map(
     [...bySeries].map(([seriesId, list]) => {
       const d = days.get(seriesId)!;
+      const own = new Map(
+        schedules
+          .filter((r) => r.seriesId === seriesId && r.structure)
+          .map((r) => [r.semesterNo, r.structure!]),
+      );
       const journey = computeJourney({
         positions: list,
         structure: settings,
+        structureFor: (n) => own.get(n),
         isOffDay: (x) => d.has(x),
         titlesOn: (x) => d.get(x) ?? [],
         weeklyOff,
@@ -134,14 +171,21 @@ function journeysFor(
 }
 
 async function loadAll(x: Executor, change?: ProposedChange) {
-  const [structure, settings, positions] = await Promise.all([
+  const [structure, settings, positions, schedules] = await Promise.all([
     getStructure(x),
     loadStructureSetting(x),
     loadPositions(x),
+    loadSchedules(x),
   ]);
   const base = await loadOffItems(x, offDayRange(positions, todayInDhaka()));
   const items = change ? applyChange(base, change) : base;
-  return { structure, positions, journeys: journeysFor(positions, items, structure, settings) };
+  return {
+    structure,
+    positions,
+    schedules,
+    settings,
+    journeys: journeysFor(positions, items, structure, settings, schedules),
+  };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -175,7 +219,7 @@ export async function graduatedSeries(date: string = todayInDhaka()) {
 }
 
 export async function seriesJourney(id: number, date: string = todayInDhaka()) {
-  const { structure, journeys, positions } = await loadAll(getDb());
+  const { structure, journeys, positions, schedules, settings } = await loadAll(getDb());
   const s = structure.series.find((x) => x.id === id);
   if (!s) return fail('NOT_FOUND', 'Series not found.');
   const j = journeys.get(id) ?? NO_JOURNEY;
@@ -188,6 +232,15 @@ export async function seriesJourney(id: number, date: string = todayInDhaka()) {
     weeks: j.weeks,
     graduation: j.graduation,
     positions: positions.filter((p) => p.seriesId === id),
+    /** Semesters with their own schedule, or an answered mid-term break. */
+    schedules: schedules
+      .filter((r) => r.seriesId === id)
+      .map((r) => ({
+        semesterNo: r.semesterNo,
+        fields: r.structure ? fieldsFromStructure(r.structure) : null,
+        midBreakConfirmed: r.midBreakConfirmed,
+      })),
+    defaultFields: fieldsFromStructure(settings),
   });
 }
 
@@ -197,7 +250,7 @@ export async function seriesJourney(id: number, date: string = todayInDhaka()) {
 
 export async function listTasks(today: string = todayInDhaka()): Promise<{ tasks: Task[] }> {
   const db = getDb();
-  const { structure, journeys } = await loadAll(db);
+  const { structure, journeys, schedules } = await loadAll(db);
   const [rules, soon] = await Promise.all([
     listRules(Number(today.slice(0, 4))),
     ruleOccurrences(db, { from: today, to: addDays(today, 30) }),
@@ -210,6 +263,9 @@ export async function listTasks(today: string = todayInDhaka()): Promise<{ tasks
         label: seriesLabel(structure, s.id),
         intakeYear: s.intakeYear,
         journey: journeys.get(s.id) ?? null,
+        breakChecked: schedules
+          .filter((r) => r.seriesId === s.id && (r.midBreakConfirmed || r.structure))
+          .map((r) => r.semesterNo),
       })),
       datesNeeded: rules.datesNeeded,
       tentative: soon
@@ -397,5 +453,106 @@ export async function putSettings(
       { structure },
     );
     return ok({ structure });
+  });
+}
+
+// ---------------------------------------------------------------------------------------
+// Per-semester schedule (Phase 14 §2)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * Give some series a different schedule for ONE semester, or just confirm the default ("Yes,
+ * that's right" on the mid-term break card). Either way the break counts as answered. Refused if a
+ * saved position of that semester would no longer exist in the new schedule.
+ */
+export async function setSchedule(
+  adminId: number,
+  input: ScheduleInput,
+): Promise<Result<{ updated: number }>> {
+  const fields: ScheduleFields | undefined = input.fields;
+  if (fields) {
+    const problem = scheduleProblem(fields);
+    if (problem) return fail('UNPROCESSABLE', problem);
+  }
+  return getDb().transaction(async (tx) => {
+    await lockWrites(tx);
+    const structure = await getStructure(tx);
+    const seriesIds = [...new Set(input.seriesIds)];
+    const unknown = seriesIds.filter((id) => !structure.series.some((s) => s.id === id));
+    if (unknown.length) {
+      return fail('UNPROCESSABLE', `Unknown or inactive series: ${unknown.join(', ')}.`);
+    }
+
+    const defaults = await loadStructureSetting(tx);
+    // Equal to the default means "no override": stored as NULL so a later default change applies.
+    const same = fields && JSON.stringify(structureFromFields(fields)) === JSON.stringify(defaults);
+    const next = fields && !same ? structureFromFields(fields) : null;
+
+    if (next) {
+      const slots = buildSlots(next);
+      const orphan = (await loadPositions(tx)).find((p) => {
+        if (!seriesIds.includes(p.seriesId) || p.semesterNo !== input.semesterNo) return false;
+        const [phase, weekNo] =
+          p.kind === 'SEMESTER_START' ? (['CLASS', 1] as const) : [p.phase, p.weekNo];
+        return !slots.some((s) => s.phase === phase && s.weekNo === weekNo);
+      });
+      if (orphan) {
+        return fail(
+          'UNPROCESSABLE',
+          `${seriesLabel(structure, orphan.seriesId)} has a saved ${orphan.phase} week ${orphan.weekNo} that this schedule does not have. Delete or change it first.`,
+        );
+      }
+    }
+
+    const existing = await tx
+      .select()
+      .from(seriesSemesterSchedule)
+      .where(
+        and(
+          inArray(seriesSemesterSchedule.seriesId, seriesIds),
+          eq(seriesSemesterSchedule.semesterNo, input.semesterNo),
+        ),
+      );
+    for (const seriesId of seriesIds) {
+      const old = existing.find((e) => e.seriesId === seriesId);
+      // Without new numbers an existing custom schedule is kept; only the confirmation is added.
+      const structureValue = fields ? next : (old?.structure ?? null);
+      const [row] = await tx
+        .insert(seriesSemesterSchedule)
+        .values({
+          seriesId,
+          semesterNo: input.semesterNo,
+          structure: structureValue,
+          midBreakConfirmed: true,
+          note: input.note ?? null,
+          createdBy: adminId,
+        })
+        .onConflictDoUpdate({
+          target: [seriesSemesterSchedule.seriesId, seriesSemesterSchedule.semesterNo],
+          set: {
+            structure: structureValue,
+            midBreakConfirmed: true,
+            note: input.note ?? old?.note ?? null,
+            updatedAt: new Date(),
+          },
+        })
+        .returning({ id: seriesSemesterSchedule.id });
+      const snap = (st: JourneyStructure | null, confirmed: boolean) => ({
+        seriesId,
+        semesterNo: input.semesterNo,
+        fields: st ? fieldsFromStructure(st) : null,
+        midBreakConfirmed: confirmed,
+      });
+      await auditEntity(
+        tx,
+        adminId,
+        old ? 'UPDATE' : 'CREATE',
+        'SERIES_SCHEDULE',
+        row!.id,
+        old ? snap(old.structure, old.midBreakConfirmed) : null,
+        snap(structureValue, true),
+      );
+    }
+    return ok({ updated: seriesIds.length });
   });
 }

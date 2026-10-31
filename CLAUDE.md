@@ -349,6 +349,16 @@ HIJRI_BD_DAY_OFFSET=1  # added to the Saudi (umalqura) Hijri date; Bangladesh si
     English digits, one English holiday `title`, weekly off days auto-trimmed from saved ranges
     (server-enforced), "Set current status" task for running batches.
 
+14. Edit anything + client feedback (spec `docs/phase-14-edit-anything-spec.md`): faculty names in labels
+    (`compressAudience(..., facultyName)`), per-semester schedule (`series_semester_schedule`, migration 0007,
+    `MID_BREAK_CHECK` task), week-strip dates, display-only weekend bars (`extendWithAdjacentOffDays`, never used
+    by overlap/impact/journey), tap-a-bar editing of yearly holidays. **Past protection is server-side**
+    (`core/calendar/past.ts`, `pastGate`): any create/date-or-audience change/delete/restore of a one-off whose old
+    or new range starts before today (Asia/Dhaka), and any yearly-occurrence edit of a past/running one, needs
+    `confirmPast: true` ("Fix a past holiday"; 409 `PAST_CONFIRM`). Yearly "Change date" scopes: only this year,
+    this year and after, from next year (422 when the new dates are already gone). Undo = snapshot in
+    `audit_log` (`entity_type` `RULE_EDIT`), `POST /api/admin/rule-edits/undo`.
+
 Full reference for 9–11: `docs/phase-9-11-spec.md` (its §4 semester model is
 replaced by Phase 12).
 

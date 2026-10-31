@@ -16,6 +16,7 @@ import {
   seriesName,
   SKIPPED_STRIP,
   weeksText,
+  weekTip,
   type JourneyResponse,
 } from '@/lib/journey-ui';
 import { Sheet } from './Sheet';
@@ -183,13 +184,11 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
 
 /** One box per week; month names above, today marked, holiday weeks hatched. */
 function WeekStrip({ weeks, today }: { weeks: JourneyResponse['weeks']; today: string }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  const tip = weeks.find((w) => w.weekStart === picked);
   return (
     <div>
-      <div
-        className="flex gap-0.5 overflow-x-auto pb-1"
-        role="img"
-        aria-label={`${weeks.length} weeks of this semester, this week marked`}
-      >
+      <div className="flex gap-0.5 overflow-x-auto pb-1">
         {weeks.map((w, i) => {
           const label =
             w.weekStart.slice(0, 7) !== weeks[i - 1]?.weekStart.slice(0, 7)
@@ -197,20 +196,32 @@ function WeekStrip({ weeks, today }: { weeks: JourneyResponse['weeks']; today: s
               : '';
           const now = today >= w.weekStart && today < addDays(w.weekStart, 7);
           return (
-            <div key={w.weekStart} className="flex w-6 shrink-0 flex-col items-center" aria-hidden>
+            <div key={w.weekStart} className="flex w-6 shrink-0 flex-col items-center">
               <span className="h-4 w-full overflow-visible text-[10px] leading-4 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
                 {label}
               </span>
-              <span
-                className={`h-5 w-full rounded-sm ${
-                  w.status === 'SKIPPED' ? SKIPPED_STRIP : PHASE_STYLE[w.phase].strip
+              <button
+                type="button"
+                title={weekTip(w)}
+                aria-label={weekTip(w)}
+                aria-pressed={picked === w.weekStart}
+                onClick={() => setPicked(picked === w.weekStart ? null : w.weekStart)}
+                className={`h-6 w-full rounded-sm text-[10px] leading-6 font-medium text-white ${
+                  w.status === 'SKIPPED'
+                    ? `${SKIPPED_STRIP} text-zinc-900 dark:text-white`
+                    : PHASE_STYLE[w.phase].strip
                 } ${now ? 'ring-2 ring-zinc-900 ring-offset-1 dark:ring-white' : ''}`}
-              />
+              >
+                {Number(w.weekStart.slice(8, 10))}
+              </button>
               <span className="h-3 text-[10px] leading-3">{now ? '▲' : ''}</span>
             </div>
           );
         })}
       </div>
+      <p className="min-h-5 text-xs text-zinc-700 dark:text-zinc-300">
+        {tip ? weekTip(tip) : 'Tap a week for its dates.'}
+      </p>
       <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-600 dark:text-zinc-400">
         {PHASES.map((p) => (
           <li key={p} className="flex items-center gap-1">

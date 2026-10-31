@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audienceFromSeries } from '@/core/calendar/audience';
 import { coveredSeriesIds } from '@/core/calendar/compress';
 import { addDays } from '@/core/calendar/hijri';
@@ -82,6 +82,16 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
     };
   }, [year, version, router]);
 
+  // Deep link from the calendar's "More" menu: ?rule=ID&do=edit|end opens that rule's form once.
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    const id = Number(params.get('rule'));
+    const rule = data?.rules.find((r) => r.id === id);
+    if (!rule || deepLinked.current) return;
+    deepLinked.current = true;
+    setDialog(params.get('do') === 'end' ? { kind: 'end', rule } : { kind: 'rule', rule });
+  }, [data, params]);
+
   const reload = () => setVersion((v) => v + 1);
   const setYear = (y: number) => router.replace(`/admin?tab=calendar&view=yearly&year=${y}`);
 
@@ -89,7 +99,18 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
   const send = useCallback(
     async (path: string, method: string, body: unknown, done: string, ruleId?: number) => {
       if (ruleId) setBusy(ruleId);
-      const r = await api(`/api/admin/holiday-rules${path}`, { method, body });
+      const call = (b: unknown) => api(`/api/admin/holiday-rules${path}`, { method, body: b });
+      let r = await call(body);
+      // Fix a past holiday: the server says how many series change; repeat with the confirm.
+      if (!r.ok && r.code === 'PAST_CONFIRM' && body && typeof body === 'object') {
+        if (
+          window.confirm(`${r.message}
+
+Fix a past holiday?`)
+        ) {
+          r = await call({ ...body, confirmPast: true });
+        }
+      }
       setBusy(null);
       if (!r.ok) {
         toast(

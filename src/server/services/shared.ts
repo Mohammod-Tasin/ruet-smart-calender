@@ -1,10 +1,12 @@
 import 'server-only';
-import { inArray, sql } from 'drizzle-orm';
-import { parseOffDays } from '@/core/calendar/grid';
+import { and, inArray, isNull, sql } from 'drizzle-orm';
+import { coveredSeriesIds } from '@/core/calendar/compress';
+import { parseOffDays, todayInDhaka } from '@/core/calendar/grid';
+import { needsPastConfirm, pastMessage } from '@/core/calendar/past';
 import { trimRange as trimRangeCore, type DateRange } from '@/core/calendar/trim';
 import type { AudienceEntry, Structure } from '@/core/calendar/types';
 import type { Executor, Tx } from '@/server/db/client';
-import { auditLog, series } from '@/server/db/schema';
+import { auditLog, series, seriesPositions } from '@/server/db/schema';
 
 export interface Person {
   id: number;
@@ -13,7 +15,14 @@ export interface Person {
 
 export interface ServiceError {
   ok: false;
-  code: 'NOT_FOUND' | 'UNPROCESSABLE' | 'BAD_REQUEST' | 'NOT_DELETED' | 'OVERLAP';
+  code:
+    | 'NOT_FOUND'
+    | 'UNPROCESSABLE'
+    | 'BAD_REQUEST'
+    | 'NOT_DELETED'
+    | 'OVERLAP'
+    | 'PAST_CONFIRM'
+    | 'CONFLICT';
   message: string;
   conflicts?: unknown[];
 }
@@ -71,7 +80,13 @@ export const auditEntity = (
   tx: Tx,
   adminId: number,
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE',
-  entityType: 'RULE' | 'RULE_OVERRIDE' | 'SERIES_POSITION' | 'ACADEMIC_SETTINGS',
+  entityType:
+    | 'RULE'
+    | 'RULE_OVERRIDE'
+    | 'RULE_EDIT'
+    | 'SERIES_POSITION'
+    | 'SERIES_SCHEDULE'
+    | 'ACADEMIC_SETTINGS',
   entityId: number,
   before: unknown,
   after: unknown,
@@ -81,3 +96,32 @@ export const auditEntity = (
 export const trimRange = (r: DateRange) =>
   trimRangeCore(r, parseOffDays(process.env.WEEKLY_OFF_DAYS));
 export const ALL_WEEKLY_OFF = 'Those days are all weekly holidays (Thursday and Friday).';
+
+/**
+ * The "Fix a past holiday" gate (enforced here, not just in the UI). null = go ahead. Otherwise a
+ * PAST_CONFIRM failure whose message says how many series have a semester history that would be
+ * recalculated; the client repeats the request with `confirmPast: true`.
+ */
+export async function pastGate(
+  x: Executor,
+  structure: Structure,
+  opts: {
+    today?: string;
+    ranges: (DateRange | null | undefined)[];
+    audiences: AudienceEntry[][];
+    confirmed?: boolean;
+  },
+): Promise<ServiceError | null> {
+  const today = opts.today ?? todayInDhaka();
+  if (opts.confirmed || !needsPastConfirm(today, opts.ranges)) return null;
+  const covered = new Set(opts.audiences.flatMap((a) => [...coveredSeriesIds(a, structure)]));
+  const withHistory = covered.size
+    ? await x
+        .selectDistinct({ id: seriesPositions.seriesId })
+        .from(seriesPositions)
+        .where(
+          and(inArray(seriesPositions.seriesId, [...covered]), isNull(seriesPositions.deletedAt)),
+        )
+    : [];
+  return fail('PAST_CONFIRM', pastMessage(withHistory.length));
+}

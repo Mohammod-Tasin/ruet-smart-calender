@@ -229,6 +229,33 @@ export const seriesPositions = pgTable(
   ],
 );
 
+/**
+ * One series' one semester that differs from the default structure (Phase 14). `structure` NULL =
+ * the default; `mid_break_confirmed` = an admin answered the "is the mid-term break on time?" card.
+ */
+export const seriesSemesterSchedule = pgTable(
+  'series_semester_schedule',
+  {
+    id: serial('id').primaryKey(),
+    seriesId: integer('series_id')
+      .notNull()
+      .references(() => series.id),
+    semesterNo: integer('semester_no').notNull(),
+    structure: jsonb('structure').$type<JourneyStructure>(),
+    midBreakConfirmed: boolean('mid_break_confirmed').notNull().default(false),
+    note: text('note'),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => admins.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('series_semester_schedule_one_per_semester').on(t.seriesId, t.semesterNo),
+    check('series_semester_schedule_semester_no_check', sql`${t.semesterNo} BETWEEN 1 AND 8`),
+  ],
+);
+
 /** One row (id = 1): the semester structure shared by every series. */
 export const academicSettings = pgTable(
   'academic_settings',

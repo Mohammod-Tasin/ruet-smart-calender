@@ -68,9 +68,7 @@ export function StatusMatrix({
                 scope="colgroup"
                 className="bg-zinc-50 px-2 py-1 text-xs font-semibold dark:bg-zinc-900"
               >
-                <span className="sticky left-2">
-                  {f.code} <span className="font-normal text-zinc-500">· {f.name}</span>
-                </span>
+                <span className="sticky left-2">{f.name}</span>
               </th>
             </tr>
             {depts.map((d) => (

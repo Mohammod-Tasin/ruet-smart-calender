@@ -69,6 +69,8 @@ export interface Position {
 export interface JourneyInput {
   positions: Position[];
   structure: JourneyStructure;
+  /** A semester whose schedule differs from `structure` (Phase 14). Default: `structure`. */
+  structureFor?: (semesterNo: number) => JourneyStructure | undefined;
   /** Holiday (not a weekly off day) for THIS series on that date. */
   isOffDay: (date: string) => boolean;
   /** Holiday titles on a date; only used for the "why was it delayed" text. */
@@ -133,7 +135,16 @@ const MAX_WEEKS = 600;
 export function computeJourney(input: JourneyInput): Journey {
   const { structure, isOffDay } = input;
   const weeklyOff = input.weeklyOff ?? [4, 5];
-  const slots = buildSlots(structure);
+  const slotCache = new Map<number, Slot[]>();
+  /** The slots of one semester: its own schedule if it has one, else the default. */
+  const semSlots = (sem: number) => {
+    let s = slotCache.get(sem);
+    if (!s) {
+      s = slotsOf(buildSlots(input.structureFor?.(sem) ?? structure), sem);
+      slotCache.set(sem, s);
+    }
+    return s;
+  };
 
   const working = (w: string) =>
     Array.from({ length: 7 }, (_, i) => addDays(w, i)).filter(
@@ -160,7 +171,7 @@ export function computeJourney(input: JourneyInput): Journey {
     .map((p) => {
       const phase = p.kind === 'SEMESTER_START' ? 'CLASS' : p.phase;
       const weekNo = p.kind === 'SEMESTER_START' ? 1 : p.weekNo;
-      const slot = slotIndex(slotsOf(slots, p.semesterNo), phase, weekNo);
+      const slot = slotIndex(semSlots(p.semesterNo), phase, weekNo);
       return { ...p, week: weekStartOf(p.asOfDate), slot };
     })
     .filter((p) => p.slot >= 0 && p.semesterNo >= 1 && p.semesterNo <= SEMESTERS)
@@ -191,7 +202,7 @@ export function computeJourney(input: JourneyInput): Journey {
 
   // 1. Back-fill the anchor's semester: walk backwards with the same skip rules.
   const back: JourneyWeek[] = [];
-  const mine = slotsOf(slots, anchor.semesterNo);
+  const mine = semSlots(anchor.semesterNo);
   let w = anchor.week;
   for (let j = anchor.slot - 1; j >= 0 && back.length < MAX_WEEKS; j--) {
     w = addDays(w, -7);
@@ -218,7 +229,7 @@ export function computeJourney(input: JourneyInput): Journey {
     if (input.until && week > input.until) break;
     const p = byWeek.get(week);
     if (p) ({ semesterNo: sem, slot: k } = p);
-    const s = slotsOf(slots, sem)[k]!;
+    const s = semSlots(sem)[k]!;
 
     const waitingForStart =
       !p &&
@@ -231,7 +242,7 @@ export function computeJourney(input: JourneyInput): Journey {
       continue;
     }
     weeks.push(row(week, sem, s, 'COUNTED'));
-    if (++k >= slotsOf(slots, sem).length) {
+    if (++k >= semSlots(sem).length) {
       if (sem >= SEMESTERS) {
         graduation = addDays(week, 7);
         break;

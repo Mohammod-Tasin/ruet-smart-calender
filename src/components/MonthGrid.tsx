@@ -1,6 +1,7 @@
 'use client';
 import { useMemo, useSyncExternalStore } from 'react';
 import { holidaysByDate, type GridCell } from '@/core/calendar/grid';
+import { extendWithAdjacentOffDays } from '@/core/calendar/extend';
 import { layoutWeek } from '@/core/calendar/lanes';
 import { categoryStyle } from '@/lib/categories';
 import type { PublicHoliday } from '@/lib/api';
@@ -59,6 +60,14 @@ export function MonthGrid({
     () => (holidays ? holidaysByDate(cells, holidays) : null),
     [cells, holidays],
   );
+  // Display only: bars also cover the Thu/Fri that touch a holiday (faint part).
+  const barItems = useMemo(() => {
+    const off = [...new Set(cells.filter((c) => c.isOff).map((c) => c.weekday))];
+    return (holidays ?? []).map((h) => {
+      const e = extendWithAdjacentOffDays(h, off);
+      return { id: h.id, startDate: e.startDate, endDate: e.endDate, h };
+    });
+  }, [cells, holidays]);
   const weeks = useMemo(
     () => Array.from({ length: cells.length / 7 }, (_, i) => cells.slice(i * 7, i * 7 + 7)),
     [cells],
@@ -79,7 +88,7 @@ export function MonthGrid({
       >
         {weeks.map((week, wi) => {
           const dates = week.map((c) => c.date);
-          const layout = holidays ? layoutWeek(dates, holidays, maxLanes) : null;
+          const layout = holidays ? layoutWeek(dates, barItems, maxLanes) : null;
           const anyMore = !!layout && layout.more.some((n) => n > 0);
           return (
             <div key={dates[0]} className="relative">
@@ -125,31 +134,52 @@ export function MonthGrid({
                         style={{ gridColumn: '2 / 5', gridRow: 1 }}
                       />
                     )
-                  : layout.bars.map((b) => {
-                      const h = b.item;
+                  : layout.bars.flatMap((b) => {
+                      const h = b.item.h;
                       const start = h.startDate < dates[0]! ? dates[0]! : h.startDate;
                       const style = categoryStyle(h.category);
-                      const text = `${b.continuesLeft ? '◂ ' : ''}${audienceText(h.label)} · ${h.category === 'SUSPENDED_WEEK' ? 'Classes suspended' : h.title}${b.continuesRight ? ' ▸' : ''}`;
-                      return (
-                        <button
-                          key={h.id}
-                          type="button"
-                          aria-label={`${h.title}, ${audienceText(h.label)}, ${dateRange(h.startDate, h.endDate)}${h.tentative ? ', expected date' : ''}`}
-                          onClick={() => onCell(start, h.id)}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          style={{
-                            gridColumn: `${b.startCol + 1} / ${b.endCol + 2}`,
-                            gridRow: b.lane + 1,
-                          }}
-                          className={`pointer-events-auto truncate px-1 text-left text-[9px] leading-4 font-medium text-white sm:text-xs sm:leading-5 ${style.solid} ${
-                            b.continuesLeft ? '' : 'rounded-l'
-                          } ${b.continuesRight ? '' : 'rounded-r'} ${
-                            h.tentative ? `${STRIPES} border border-dashed border-white/70` : ''
-                          }`}
-                        >
-                          {text}
-                        </button>
+                      const real = dates.map((d) => d >= h.startDate && d <= h.endDate);
+                      const cols = Array.from(
+                        { length: b.endCol - b.startCol + 1 },
+                        (_, i) => b.startCol + i,
                       );
+                      const first = cols.findIndex((c) => real[c]);
+                      const lastReal = cols.findLastIndex((c) => real[c]);
+                      // [from, to, faint] column runs: weekend lead-in, the holiday, weekend tail.
+                      const runs: [number, number, boolean][] = [];
+                      if (first < 0) runs.push([b.startCol, b.endCol, true]);
+                      else {
+                        if (first > 0) runs.push([b.startCol, cols[first - 1]!, true]);
+                        runs.push([cols[first]!, cols[lastReal]!, false]);
+                        if (lastReal < cols.length - 1)
+                          runs.push([cols[lastReal + 1]!, b.endCol, true]);
+                      }
+                      return runs.map(([from, to, faint]) => {
+                        const left = from === b.startCol && !b.continuesLeft;
+                        const right = to === b.endCol && !b.continuesRight;
+                        const text = faint
+                          ? ''
+                          : `${b.continuesLeft && from === b.startCol ? '◂ ' : ''}${audienceText(h.label)} · ${h.category === 'SUSPENDED_WEEK' ? 'Classes suspended' : h.title}${b.continuesRight && to === b.endCol ? ' ▸' : ''}`;
+                        return (
+                          <button
+                            key={`${h.id}:${from}`}
+                            type="button"
+                            aria-label={`${h.title}, ${audienceText(h.label)}, ${dateRange(h.startDate, h.endDate)}${h.tentative ? ', expected date' : ''}${faint ? ', weekend' : ''}`}
+                            aria-hidden={faint || undefined}
+                            tabIndex={faint ? -1 : undefined}
+                            onClick={() => onCell(start, h.id)}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            style={{ gridColumn: `${from + 1} / ${to + 2}`, gridRow: b.lane + 1 }}
+                            className={`pointer-events-auto truncate px-1 text-left text-[9px] leading-4 font-medium text-white sm:text-xs sm:leading-5 ${style.solid} ${
+                              left ? 'rounded-l' : ''
+                            } ${right ? 'rounded-r' : ''} ${faint ? 'opacity-40' : ''} ${
+                              h.tentative ? `${STRIPES} border border-dashed border-white/70` : ''
+                            }`}
+                          >
+                            {text}
+                          </button>
+                        );
+                      });
                     })}
                 {anyMore &&
                   layout!.more.map((n, col) =>

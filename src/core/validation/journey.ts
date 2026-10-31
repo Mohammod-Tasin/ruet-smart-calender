@@ -83,3 +83,28 @@ export const impactSchema = z
   .refine((v) => (v.removeIds?.length ?? 0) + (v.add?.length ?? 0) > 0, 'describe a change');
 
 export const statusQuerySchema = z.object({ date: date.optional() });
+
+const weeks = (max: number) => z.number().int().min(0).max(max);
+
+/** Set (or just confirm) the mid-term break / schedule of one semester for many series. */
+export const scheduleSchema = z
+  .object({
+    seriesIds: z.array(z.number().int().positive()).min(1).max(200),
+    semesterNo: z.number().int().min(1).max(SEMESTERS),
+    /** The four numbers of a different schedule; omit to just confirm the default. */
+    fields: z
+      .object({
+        classesBefore: weeks(20),
+        classesAfter: weeks(20),
+        vivaWeeks: weeks(4),
+        finalWeeks: weeks(8),
+      })
+      .optional(),
+    note,
+  })
+  .superRefine((v, ctx) => {
+    if (new Set(v.seriesIds).size !== v.seriesIds.length) {
+      ctx.addIssue({ code: 'custom', path: ['seriesIds'], message: 'duplicate series' });
+    }
+  });
+export type ScheduleInput = z.infer<typeof scheduleSchema>;

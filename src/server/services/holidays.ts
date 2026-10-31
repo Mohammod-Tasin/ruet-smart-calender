@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { compressAudience } from '@/core/calendar/compress';
+import { compressAudience, facultyName } from '@/core/calendar/compress';
 import { findOverlaps, type Overlap, type OverlapInput } from '@/core/calendar/overlap';
 import { suspendedWeekProblem, type Category } from '@/core/calendar/rules';
 import type { AudienceEntry, Structure } from '@/core/calendar/types';
@@ -20,6 +20,7 @@ import {
   fail,
   lockWrites,
   ok,
+  pastGate,
   trimRange,
   type Person,
   type Result,
@@ -137,7 +138,7 @@ async function fetchOne(x: Executor, id: number): Promise<HolidayRecord | null> 
 
 const view = (r: HolidayRecord, structure: Structure): HolidayView => ({
   ...r,
-  label: compressAudience(r.audience, structure),
+  label: compressAudience(r.audience, structure, facultyName),
 });
 
 // ---------------------------------------------------------------------------------------
@@ -157,7 +158,7 @@ function toConflict(o: Overlap<Clashable>, structure: Structure): Conflict {
     note: h.note,
     startDate: h.startDate,
     endDate: h.endDate,
-    label: compressAudience(h.audience, structure),
+    label: compressAudience(h.audience, structure, facultyName),
     createdBy: h.createdBy,
     createdAt: h.createdAt,
     updatedBy: h.updatedBy,
@@ -223,15 +224,23 @@ const snapshot = (h: {
   deletedAt: h.deletedAt,
 });
 
+const audienceKey = (a: AudienceEntry[]) =>
+  a
+    .map((x) => `${x.scopeType}:${x.scopeId}`)
+    .sort()
+    .join(',');
+
 const withConfirmed = (after: object, conflicts: Conflict[]) =>
   conflicts.length > 0 ? { ...after, confirmedOverlapWith: conflicts.map((c) => c.id) } : after;
 
 const insertAudience = (tx: Tx, holidayId: number, audience: AudienceEntry[]) =>
   tx.insert(holidayAudience).values(audience.map((a) => ({ holidayId, ...a })));
 
+/** `today` (Asia/Dhaka) is only passed by tests; routes never set it. */
 export async function createHoliday(
   adminId: number,
   raw: CreateHolidayInput,
+  today?: string,
 ): Promise<Result<{ holiday: HolidayView; trimmed?: { startDate: string; endDate: string } }>> {
   let input = raw;
   let trimmed: { startDate: string; endDate: string } | undefined;
@@ -249,6 +258,14 @@ export async function createHoliday(
 
     const problem = await audienceProblem(tx, structure, input.audience);
     if (problem) return fail('UNPROCESSABLE', problem);
+
+    const past = await pastGate(tx, structure, {
+      today,
+      ranges: [input],
+      audiences: [input.audience],
+      confirmed: input.confirmPast,
+    });
+    if (past) return past;
 
     const conflicts = await conflictsFor(tx, structure, input);
     if (conflicts.length > 0 && !input.confirmOverlap) {
@@ -292,6 +309,7 @@ export async function updateHoliday(
   adminId: number,
   id: number,
   patch: PatchHolidayInput,
+  today?: string,
 ): Promise<Result<{ holiday: HolidayView; trimmed?: { startDate: string; endDate: string } }>> {
   let trimmed: { startDate: string; endDate: string } | undefined;
   return getDb().transaction(async (tx) => {
@@ -326,6 +344,23 @@ export async function updateHoliday(
     if (patch.audience) {
       const problem = await audienceProblem(tx, structure, patch.audience);
       if (problem) return fail('UNPROCESSABLE', problem);
+    }
+
+    // Changing when, for whom or what kind of holiday a past day is rewrites semester history.
+    // A title / note / "classes only" edit does not, so it never needs the confirm.
+    const changesSchedule =
+      merged.startDate !== existing.startDate ||
+      merged.endDate !== existing.endDate ||
+      merged.category !== existing.category ||
+      audienceKey(merged.audience) !== audienceKey(existing.audience);
+    if (changesSchedule) {
+      const past = await pastGate(tx, structure, {
+        today,
+        ranges: [existing, merged],
+        audiences: [existing.audience, merged.audience],
+        confirmed: patch.confirmPast,
+      });
+      if (past) return past;
     }
 
     // A title or note edit cannot create a new overlap, so only dates/audience changes check.
@@ -370,11 +405,21 @@ export async function updateHoliday(
 export async function deleteHoliday(
   adminId: number,
   id: number,
+  opts: { confirmPast?: boolean; today?: string } = {},
 ): Promise<Result<{ holiday: HolidayView }>> {
   return getDb().transaction(async (tx) => {
     await lockWrites(tx);
     const existing = await fetchOne(tx, id);
     if (!existing || existing.deletedAt) return fail('NOT_FOUND', 'Holiday not found.');
+
+    const structure = await getStructure(tx);
+    const past = await pastGate(tx, structure, {
+      today: opts.today,
+      ranges: [existing],
+      audiences: [existing.audience],
+      confirmed: opts.confirmPast,
+    });
+    if (past) return past;
 
     await tx
       .update(holidays)
@@ -390,7 +435,7 @@ export async function deleteHoliday(
       after: snapshot(after),
     });
 
-    return ok({ holiday: view(after, await getStructure(tx)) });
+    return ok({ holiday: view(after, structure) });
   });
 }
 
@@ -398,12 +443,22 @@ export async function deleteHoliday(
 export async function restoreHoliday(
   adminId: number,
   id: number,
+  opts: { confirmPast?: boolean; today?: string } = {},
 ): Promise<Result<{ holiday: HolidayView; conflicts: Conflict[] }>> {
   return getDb().transaction(async (tx) => {
     await lockWrites(tx);
     const existing = await fetchOne(tx, id);
     if (!existing) return fail('NOT_FOUND', 'Holiday not found.');
     if (!existing.deletedAt) return fail('NOT_DELETED', 'Holiday is not deleted.');
+
+    const structure = await getStructure(tx);
+    const past = await pastGate(tx, structure, {
+      today: opts.today,
+      ranges: [existing],
+      audiences: [existing.audience],
+      confirmed: opts.confirmPast,
+    });
+    if (past) return past;
 
     await tx
       .update(holidays)
@@ -419,7 +474,6 @@ export async function restoreHoliday(
       after: snapshot(after),
     });
 
-    const structure = await getStructure(tx);
     return ok({
       holiday: view(after, structure),
       conflicts: await conflictsFor(tx, structure, after, id),

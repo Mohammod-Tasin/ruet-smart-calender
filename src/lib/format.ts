@@ -1,3 +1,5 @@
+import { extendWithAdjacentOffDays } from '@/core/calendar/extend';
+import type { DateRange } from '@/core/calendar/trim';
 import { monthShort } from '@/core/calendar/months';
 import { rangeText } from './journey-ui';
 import { WEEKDAYS_EN } from './rule-summary';
@@ -37,12 +39,32 @@ export const stamp = (instant: string) =>
  * "Thursday and Friday are weekly holidays, so we saved 17–21 Oct." `verb` is "saved" after a
  * save (the server already trimmed) and "will save" while the admin is still typing.
  */
+const dayNames = (offDays: number[]) => {
+  const names = [...offDays].sort().map((d) => WEEKDAYS_EN[d]!);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]!;
+};
+
+/** "15–23 Oct": the saved range plus the weekly off days touching it; null if nothing is added. */
+export function weekendRange(r: DateRange, offDays: number[]): string | null {
+  const e = extendWithAdjacentOffDays(r, offDays);
+  return e.startDate === r.startDate && e.endDate === r.endDate
+    ? null
+    : rangeText(e.startDate, e.endDate);
+}
+
+/** "Students will be off 15–23 Oct (Thursday and Friday are weekly holidays)." */
+export function weekendNote(r: DateRange, offDays: number[]): string | null {
+  const w = weekendRange(r, offDays);
+  return (
+    w &&
+    `Students will be off ${w} (${dayNames(offDays)} ${offDays.length > 1 ? 'are weekly holidays' : 'is a weekly holiday'}).`
+  );
+}
+
 export function trimNote(
   r: { startDate: string; endDate: string },
   offDays: number[],
   verb: 'saved' | 'will save' = 'saved',
 ): string {
-  const names = [...offDays].sort().map((d) => WEEKDAYS_EN[d]!);
-  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
-  return `${list} ${names.length > 1 ? 'are weekly holidays' : 'is a weekly holiday'}, so we ${verb} ${rangeText(r.startDate, r.endDate)}.`;
+  return `${dayNames(offDays)} ${offDays.length > 1 ? 'are weekly holidays' : 'is a weekly holiday'}, so we ${verb} ${rangeText(r.startDate, r.endDate)}.`;
 }

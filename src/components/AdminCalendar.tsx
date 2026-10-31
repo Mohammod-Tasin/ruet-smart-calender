@@ -9,6 +9,7 @@ import {
   type AuditEntry,
   type Conflict,
   type FullHoliday,
+  type PublicHoliday,
 } from '@/lib/api';
 import { longDate, stamp } from '@/lib/format';
 import { useMonthHolidays, useStructure } from '@/lib/hooks';
@@ -17,13 +18,16 @@ import { HolidayEditor, type EditorTarget } from './HolidayEditor';
 import { ImpactPreview } from './ImpactPreview';
 import { MonthGrid } from './MonthGrid';
 import { MonthHeader } from './MonthHeader';
+import { OccurrenceSheet } from './OccurrenceSheet';
+import { PastConfirm } from './PastConfirm';
 import { Sheet } from './Sheet';
 import { SuspendSheet } from './SuspendSheet';
 import { useToast } from './Toast';
 import { primary, small } from './ui';
 
 type Dialog =
-  | { kind: 'day'; date: string }
+  | { kind: 'day'; date: string; only?: number }
+  | { kind: 'occurrence'; holiday: PublicHoliday }
   | { kind: 'edit'; target: EditorTarget; key: number }
   | { kind: 'suspend'; date: string };
 
@@ -38,6 +42,12 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
   const [historyOf, setHistoryOf] = useState<{ id: number; title: string } | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  // The server asked for the "Fix a past holiday" confirm for this delete / restore.
+  const [past, setPast] = useState<{
+    id: number;
+    kind: 'delete' | 'restore';
+    message: string;
+  } | null>(null);
   const [deleted, setDeleted] = useState<FullHoliday[]>([]);
 
   const { structure } = useStructure();
@@ -58,33 +68,46 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
   const sessionGone = (status: number) => status === 401 && router.replace('/admin/login');
 
   const onCell = (date: string, holidayId: number | string | null) => {
-    // Yearly-rule occurrences ("rule:<id>:<year>") are edited in the yearly list.
-    if (typeof holidayId === 'string')
-      return router.push(yearlyHref(Number(holidayId.split(':')[2])));
-    setDialog({ kind: 'day', date });
+    if (holidayId === null) return setDialog({ kind: 'day', date });
+    // Tapping a bar opens that holiday directly: a yearly one ("rule:<id>:<year>") or a one-off.
+    const h = holidays?.find((x) => x.id === holidayId);
+    if (h && typeof h.id === 'string') return setDialog({ kind: 'occurrence', holiday: h });
+    setDialog({ kind: 'day', date, only: Number(holidayId) });
   };
 
-  async function remove(h: { id: number; title: string }) {
+  async function remove(h: { id: number; title: string }, confirmPast = false) {
     setBusyId(h.id);
-    const r = await api(`/api/admin/holidays/${h.id}`, { method: 'DELETE' });
+    const r = await api(`/api/admin/holidays/${h.id}`, {
+      method: 'DELETE',
+      body: confirmPast ? { confirmPast } : undefined,
+    });
     setBusyId(null);
-    setConfirmId(null);
     if (r.ok) {
+      setConfirmId(null);
+      setPast(null);
       toast(`"${h.title}" deleted. You can restore it from Recently deleted below.`);
       refresh();
+    } else if (r.code === 'PAST_CONFIRM') {
+      setPast({ id: h.id, kind: 'delete', message: r.message });
     } else {
+      setConfirmId(null);
       toast(r.message, 'error');
       sessionGone(r.status);
     }
   }
 
-  async function restore(h: FullHoliday) {
+  async function restore(h: FullHoliday, confirmPast = false) {
     setBusyId(h.id);
     const r = await api<{ conflicts: Conflict[] }>(`/api/admin/holidays/${h.id}/restore`, {
       method: 'POST',
+      body: confirmPast ? { confirmPast } : undefined,
     });
     setBusyId(null);
+    if (!r.ok && r.code === 'PAST_CONFIRM') {
+      return setPast({ id: h.id, kind: 'restore', message: r.message });
+    }
     if (!r.ok) return toast(r.message, 'error');
+    setPast(null);
     const n = r.data.conflicts.length;
     toast(
       n
@@ -96,8 +119,10 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
   }
 
   const dayDate = dialog?.kind === 'day' ? dialog.date : null;
-  const dayHolidays =
-    dayDate && holidays ? (holidaysByDate(cells, holidays).get(dayDate) ?? []) : [];
+  const only = dialog?.kind === 'day' ? dialog.only : undefined;
+  const dayHolidays = (
+    dayDate && holidays ? (holidaysByDate(cells, holidays).get(dayDate) ?? []) : []
+  ).filter((h) => only === undefined || h.id === only);
 
   return (
     <div className="space-y-4">
@@ -109,7 +134,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
       />
       <div className="flex flex-wrap items-center gap-2 px-1 text-sm">
         <p className="mr-auto text-zinc-600 dark:text-zinc-400">
-          Tap any day. Tap a holiday to edit, delete or see its history.
+          Tap any day to add a holiday. Tap a bar to change it.
         </p>
         <Link href={yearlyHref(Number(today.slice(0, 4)))} className={small}>
           Yearly holidays
@@ -146,6 +171,14 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
               holiday={h}
               actions={
                 <>
+                  {past?.id === h.id && past.kind === 'restore' && (
+                    <PastConfirm
+                      message={past.message}
+                      busy={busyId === h.id}
+                      onConfirm={() => restore(h, true)}
+                      onCancel={() => setPast(null)}
+                    />
+                  )}
                   <button
                     type="button"
                     className={small}
@@ -169,9 +202,12 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
       </details>
 
       {dialog?.kind === 'day' && (
-        <Sheet title={longDate(dialog.date)} onClose={() => setDialog(null)}>
+        <Sheet
+          title={only === undefined ? longDate(dialog.date) : (dayHolidays[0]?.title ?? 'Holiday')}
+          onClose={() => setDialog(null)}
+        >
           <div className="space-y-4">
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className={`grid gap-2 sm:grid-cols-2 ${only === undefined ? '' : 'hidden'}`}>
               <button
                 type="button"
                 className={`${primary} py-3`}
@@ -196,6 +232,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                   <HolidayCard
                     key={id}
                     holiday={h}
+                    offDays={offDays}
                     actions={
                       typeof id === 'string' ? (
                         <Link
@@ -210,22 +247,36 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                           <div className="basis-full">
                             <ImpactPreview change={{ removeIds: [id] }} />
                           </div>
-                          <button
-                            type="button"
-                            disabled={busyId === id}
-                            className={`${small} border-red-700 bg-red-700 text-white hover:bg-red-800`}
-                            onClick={() => remove({ id, title: h.title })}
-                          >
-                            {busyId === id ? 'Deleting…' : 'Yes, delete'}
-                          </button>
-                          <button
-                            type="button"
-                            className={small}
-                            disabled={busyId === id}
-                            onClick={() => setConfirmId(null)}
-                          >
-                            Cancel
-                          </button>
+                          {past?.id === id && past.kind === 'delete' ? (
+                            <PastConfirm
+                              message={past.message}
+                              busy={busyId === id}
+                              onConfirm={() => remove({ id, title: h.title }, true)}
+                              onCancel={() => {
+                                setPast(null);
+                                setConfirmId(null);
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                disabled={busyId === id}
+                                className={`${small} border-red-700 bg-red-700 text-white hover:bg-red-800`}
+                                onClick={() => remove({ id, title: h.title })}
+                              >
+                                {busyId === id ? 'Deleting…' : 'Yes, delete'}
+                              </button>
+                              <button
+                                type="button"
+                                className={small}
+                                disabled={busyId === id}
+                                onClick={() => setConfirmId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          )}
                         </>
                       ) : (
                         <>
@@ -255,6 +306,15 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
             )}
           </div>
         </Sheet>
+      )}
+      {dialog?.kind === 'occurrence' && (
+        <OccurrenceSheet
+          key={String(dialog.holiday.id)}
+          holiday={dialog.holiday}
+          offDays={offDays}
+          onClose={() => setDialog(null)}
+          onChanged={refresh}
+        />
       )}
       {dialog?.kind === 'edit' && structure && (
         <HolidayEditor

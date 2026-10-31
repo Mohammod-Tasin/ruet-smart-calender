@@ -8,6 +8,7 @@ import { dayText } from '@/lib/journey-ui';
 import { AudienceChips } from './AudienceChips';
 import { ImpactPreview } from './ImpactPreview';
 import { OverlapLine, useOverlap } from './OverlapLine';
+import { PastNote } from './PastConfirm';
 import { Sheet } from './Sheet';
 import { field, primary, small } from './ui';
 
@@ -35,6 +36,7 @@ export function SuspendSheet({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pastMsg, setPastMsg] = useState<string | null>(null);
 
   const audience = useMemo(() => audienceFromSeries(selected, structure), [selected, structure]);
   const ready = audience.length > 0;
@@ -58,10 +60,12 @@ export function SuspendSheet({
         endDate: end,
         audience,
         confirmOverlap: conflicts.length > 0 ? true : undefined,
+        confirmPast: pastMsg ? true : undefined,
       },
     });
     setSaving(false);
     if (r.ok) return onDone('Classes suspended for the week.');
+    if (r.code === 'PAST_CONFIRM') return setPastMsg(r.message);
     if (r.code === 'OVERLAP' && r.conflicts) {
       setConflicts(r.conflicts);
       return setError('This overlaps another holiday. Check it, then press "Save anyway".');
@@ -93,6 +97,7 @@ export function SuspendSheet({
         <AudienceChips structure={structure} selected={selected} onChange={setSelected} />
         <OverlapLine conflicts={conflicts} checking={checking} onEdit={onEditExisting} />
         <ImpactPreview change={change} />
+        {pastMsg && <PastNote message={pastMsg} />}
         {error && (
           <p role="alert" className="text-sm text-red-700 dark:text-red-400">
             {error}
@@ -103,7 +108,13 @@ export function SuspendSheet({
             disabled={saving}
             className={`${primary} ${conflicts.length ? 'bg-amber-600 hover:bg-amber-700' : ''}`}
           >
-            {saving ? 'Saving…' : conflicts.length ? 'Save anyway' : 'Save'}
+            {saving
+              ? 'Saving…'
+              : pastMsg
+                ? 'Fix a past holiday'
+                : conflicts.length
+                  ? 'Save anyway'
+                  : 'Save'}
           </button>
           <button
             type="button"

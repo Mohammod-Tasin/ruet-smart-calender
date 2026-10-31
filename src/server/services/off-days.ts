@@ -1,5 +1,5 @@
 import 'server-only';
-import { appliesToSeries, compressAudience } from '@/core/calendar/compress';
+import { appliesToSeries, compressAudience, facultyName } from '@/core/calendar/compress';
 import type { Category } from '@/core/calendar/rules';
 import type { AudienceEntry } from '@/core/calendar/types';
 import { getDb, type Executor } from '@/server/db/client';
@@ -48,12 +48,12 @@ export async function getOffDays(
       category: h.category as Category,
       source: 'ONE_OFF' as const,
       tentative: false,
-      label: compressAudience(h.audience, structure),
+      label: compressAudience(h.audience, structure, facultyName),
     })),
     ...rules.map((o) => ({
       ...o,
       source: 'RULE' as const,
-      label: compressAudience(o.audience, structure),
+      label: compressAudience(o.audience, structure, facultyName),
     })),
   ];
   const wanted = filter.seriesId;

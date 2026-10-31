@@ -1,10 +1,10 @@
 import 'server-only';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/server/db/client';
 import { admins, auditLog } from '@/server/db/schema';
 
 /** Change history, newest first. Any admin may read it. No filter: the latest 100 changes. */
-export async function listAudit(filter: { holidayId?: number } = {}) {
+export async function listAudit(filter: { holidayId?: number; ruleId?: number } = {}) {
   const rows = await getDb()
     .select({
       id: auditLog.id,
@@ -19,7 +19,16 @@ export async function listAudit(filter: { holidayId?: number } = {}) {
     })
     .from(auditLog)
     .innerJoin(admins, eq(admins.id, auditLog.adminId))
-    .where(filter.holidayId === undefined ? undefined : eq(auditLog.holidayId, filter.holidayId))
+    .where(
+      filter.ruleId !== undefined
+        ? and(
+            inArray(auditLog.entityType, ['RULE', 'RULE_OVERRIDE']),
+            eq(auditLog.entityId, filter.ruleId),
+          )
+        : filter.holidayId === undefined
+          ? undefined
+          : eq(auditLog.holidayId, filter.holidayId),
+    )
     .orderBy(desc(auditLog.at), desc(auditLog.id))
     .limit(100);
 

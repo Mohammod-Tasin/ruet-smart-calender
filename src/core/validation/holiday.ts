@@ -44,6 +44,8 @@ export const audience = z
   });
 
 const confirmOverlap = z.boolean().optional();
+/** "Fix a past holiday": the admin saw the past-change warning and confirmed. */
+const confirmPast = z.boolean().optional();
 
 const orderCheck = (v: { startDate?: string; endDate?: string }, ctx: z.RefinementCtx) => {
   if (v.startDate !== undefined && v.endDate !== undefined && v.endDate < v.startDate) {
@@ -75,6 +77,7 @@ const base = z.object({
   endDate: date,
   audience,
   confirmOverlap,
+  confirmPast,
 });
 
 export const createHolidaySchema = base.superRefine((v, ctx) => {
@@ -100,6 +103,7 @@ export const patchHolidaySchema = z
     category: category.optional(),
     classesOnly: z.boolean().optional(),
     confirmOverlap,
+    confirmPast,
   })
   .superRefine((v, ctx) => {
     orderCheck(v, ctx);
@@ -117,3 +121,6 @@ export type CheckOverlapInput = z.infer<typeof checkOverlapSchema>;
 export function formatIssues(error: z.ZodError): string {
   return error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ');
 }
+
+/** Body of DELETE and restore: only the past-change confirmation. */
+export const confirmPastSchema = z.object({ confirmPast });

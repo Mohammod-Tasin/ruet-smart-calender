@@ -2,10 +2,13 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { todayInDhaka } from '@/core/calendar/grid';
+import { DEFAULT_STRUCTURE, type JourneyStructure } from '@/core/journey/journey';
+import { fieldsFromStructure, type ScheduleFields } from '@/core/journey/schedule';
 import type { Task } from '@/core/journey/tasks';
 import { api } from '@/lib/api';
 import { dayText, semLabel } from '@/lib/journey-ui';
 import { yearlyHref } from './AdminCalendar';
+import { ScheduleForm } from './ScheduleForm';
 import { useToast } from './Toast';
 import { field, primary, small } from './ui';
 
@@ -16,6 +19,14 @@ export function AdminHome() {
   const toast = useToast();
   const [state, setState] = useState<{ tasks?: Task[]; error?: string } | null>(null);
   const [version, setVersion] = useState(0);
+  const [defaults, setDefaults] = useState<ScheduleFields>(fieldsFromStructure(DEFAULT_STRUCTURE)!);
+
+  useEffect(() => {
+    api<{ structure: JourneyStructure }>('/api/admin/academic-settings').then((r) => {
+      const f = r.ok ? fieldsFromStructure(r.data.structure) : null;
+      if (f) setDefaults(f);
+    });
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -65,6 +76,9 @@ export function AdminHome() {
       {state.tasks!.map((t, i) => (
         <li key={`${t.type}-${i}`}>
           {t.type === 'NEXT_SEMESTER_START' && <StartCard task={t} onSave={saveStarts} />}
+          {t.type === 'MID_BREAK_CHECK' && (
+            <MidBreakCard task={t} defaults={defaults} onDone={() => setVersion((v) => v + 1)} />
+          )}
           {t.type === 'SET_STATUS' && (
             <Card
               title={`${t.seriesIds.length} series ${t.seriesIds.length === 1 ? 'has' : 'have'} no status yet`}
@@ -263,6 +277,131 @@ function NewBatchCard({
           {busy ? 'Saving…' : 'Confirm'}
         </button>
       </div>
+    </Card>
+  );
+}
+
+type MidBreak = Extract<Task, { type: 'MID_BREAK_CHECK' }>;
+
+/** "Mid-term break expected from Sat 14 Nov (after class week 7). Is that right?" */
+function MidBreakCard({
+  task: t,
+  defaults,
+  onDone,
+}: {
+  task: MidBreak;
+  defaults: ScheduleFields;
+  onDone: () => void;
+}) {
+  const toast = useToast();
+  const [mode, setMode] = useState<'ask' | 'change' | 'each'>('ask');
+  const [different, setDifferent] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const ids = t.items.map((i) => i.seriesId);
+  const initial = { ...defaults, classesBefore: t.afterClassWeek };
+
+  /** Series in `seriesIds` get `fields` (or just "yes, the default is right" when omitted). */
+  async function send(seriesIds: number[], fields?: ScheduleFields) {
+    if (seriesIds.length === 0) return true;
+    const r = await api('/api/admin/schedules', {
+      method: 'POST',
+      body: { seriesIds, semesterNo: t.semesterNo, fields },
+    });
+    if (!r.ok) toast(r.message, 'error');
+    return r.ok;
+  }
+  async function run(plan: [number[], ScheduleFields?][], done: string) {
+    setBusy(true);
+    for (const [seriesIds, fields] of plan) {
+      if (!(await send(seriesIds, fields))) return setBusy(false);
+    }
+    setBusy(false);
+    toast(done);
+    onDone();
+  }
+
+  const dates = t.items.map((i) => i.label.split('-')[0]).join(', ');
+  const chosen = ids.filter((id) => different.has(id));
+  return (
+    <Card
+      title={`Batch ${t.intakeYear} · Semester ${semLabel(t.semesterNo)}: mid-term break expected from Sat ${dayText(t.expectedStart)} (after class week ${t.afterClassWeek}). Is that right?`}
+    >
+      <p className="text-sm text-zinc-700 dark:text-zinc-300">Departments: {dates}</p>
+      {mode === 'ask' && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className={primary}
+            disabled={busy}
+            onClick={() => run([[ids]], 'Thanks, the mid-term break is confirmed.')}
+          >
+            {busy ? 'Saving…' : "Yes, that's right"}
+          </button>
+          <button type="button" className={`${small} py-2`} onClick={() => setMode('change')}>
+            Change
+          </button>
+          <button type="button" className="text-sm underline" onClick={() => setMode('each')}>
+            Some departments are different
+          </button>
+        </div>
+      )}
+      {mode === 'change' && (
+        <ScheduleForm
+          initial={initial}
+          expectedBreak={t.expectedStart}
+          busy={busy}
+          onCancel={() => setMode('ask')}
+          onSave={(f) => run([[ids, f]], 'Schedule changed.')}
+        />
+      )}
+      {mode === 'each' && (
+        <div className="space-y-3">
+          <p className="text-sm">Tap the departments whose break is different.</p>
+          <div className="flex flex-wrap gap-2">
+            {t.items.map((i) => (
+              <button
+                key={i.seriesId}
+                type="button"
+                aria-pressed={different.has(i.seriesId)}
+                className={`${small} ${different.has(i.seriesId) ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950' : ''}`}
+                onClick={() =>
+                  setDifferent((d) => {
+                    const n = new Set(d);
+                    if (n.has(i.seriesId)) n.delete(i.seriesId);
+                    else n.add(i.seriesId);
+                    return n;
+                  })
+                }
+              >
+                {i.label.split('-')[0]}
+              </button>
+            ))}
+          </div>
+          {chosen.length === 0 ? (
+            <button
+              type="button"
+              className={primary}
+              disabled={busy}
+              onClick={() => run([[ids]], 'Thanks, the mid-term break is confirmed.')}
+            >
+              All are right
+            </button>
+          ) : (
+            <ScheduleForm
+              initial={initial}
+              expectedBreak={t.expectedStart}
+              busy={busy}
+              saveLabel="Save (others are right)"
+              onSave={(f) =>
+                run([[chosen, f], [ids.filter((id) => !different.has(id))]], 'Schedules saved.')
+              }
+            />
+          )}
+          <button type="button" className="text-sm underline" onClick={() => setMode('ask')}>
+            Back
+          </button>
+        </div>
+      )}
     </Card>
   );
 }

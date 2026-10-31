@@ -95,7 +95,7 @@ export function AudiencePicker({
               onChange={(on) => toggle(facultyIds, on)}
               className="font-medium"
             >
-              {f.code} <span className="font-normal text-zinc-500">· {f.name}</span>
+              {f.name}
             </Check>
             {depts.map((d) => {
               const list = seriesOf(d.id);

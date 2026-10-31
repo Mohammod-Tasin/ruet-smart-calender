@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { appliesToSeries, compressAudience } from '@/core/calendar/compress';
+import { appliesToSeries, compressAudience, facultyName } from '@/core/calendar/compress';
 import type { AudienceEntry, Structure } from '@/core/calendar/types';
 
 // Faculties are listed out of order on purpose: sort_order must decide, not array order.
 const faculties = [
-  { id: 3, code: 'FME', sortOrder: 3 },
-  { id: 1, code: 'FECE', sortOrder: 1 },
-  { id: 2, code: 'FCE', sortOrder: 2 },
+  { id: 3, code: 'FME', name: 'Mechanical Engineering', sortOrder: 3 },
+  { id: 1, code: 'FECE', name: 'Electrical & Computer Engineering', sortOrder: 1 },
+  { id: 2, code: 'FCE', name: 'Civil Engineering', sortOrder: 2 },
 ];
 const depts = {
   EEE: { id: 1, facultyId: 1, code: 'EEE' },
@@ -88,6 +88,19 @@ const cases: [string, AudienceEntry[], string][] = [
 describe('compressAudience', () => {
   test.each(cases)('%s', (_name, audience, expected) => {
     expect(compressAudience(audience, structure)).toBe(expected);
+  });
+});
+
+describe('compressAudience with faculty names', () => {
+  test.each([
+    ['full faculty uses the name', [fac(1)], 'Electrical & Computer Engineering'],
+    ['name beside a loose series', [fac(2), ser('ME', 22)], 'Civil Engineering · ME-22'],
+    ['ALL stays ALL', [ALL], 'ALL'],
+  ] as [string, AudienceEntry[], string][])('%s', (_n, audience, expected) => {
+    expect(compressAudience(audience, structure, facultyName)).toBe(expected);
+  });
+  test('falls back to the code without a name', () => {
+    expect(facultyName({ id: 9, code: 'X', sortOrder: 1 })).toBe('X');
   });
 });
 
