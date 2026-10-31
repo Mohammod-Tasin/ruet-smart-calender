@@ -63,6 +63,7 @@ export const overrideSchema = z
     skipped: z.boolean().optional(),
     confirmed: z.boolean().optional(),
     note: z.string().trim().max(500).nullish(),
+    confirmPast: z.boolean().optional(),
   })
   .superRefine((v, ctx) => {
     if (!v.startDate !== !v.endDate || (v.startDate && v.endDate && v.endDate < v.startDate)) {
@@ -70,8 +71,21 @@ export const overrideSchema = z
     }
   });
 
-export const clearOverrideSchema = z.object({ year });
+export const clearOverrideSchema = z.object({ year, confirmPast: z.boolean().optional() });
 
 export type CreateRuleInput = z.infer<typeof createRuleSchema>;
 export type PatchRuleInput = z.infer<typeof patchRuleSchema>;
 export type OverrideInput = z.infer<typeof overrideSchema>;
+
+/** "Change date" on one yearly occurrence from the calendar. */
+export const occurrenceSchema = z
+  .object({
+    year,
+    startDate: date,
+    endDate: date,
+    scope: z.enum(['ONLY_YEAR', 'FROM_YEAR', 'FROM_NEXT_YEAR']),
+    confirmPast: z.boolean().optional(),
+  })
+  .refine((v) => v.endDate >= v.startDate, 'endDate must be on or after startDate');
+
+export const undoSchema = z.object({ undoId: z.number().int().positive() });

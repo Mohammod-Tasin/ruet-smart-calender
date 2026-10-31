@@ -9,6 +9,8 @@ export interface AudienceEntry {
 export interface FacultyInfo {
   id: number;
   code: string;
+  /** Full name, e.g. "Electrical & Computer Engineering". */
+  name?: string;
   sortOrder: number;
 }
 

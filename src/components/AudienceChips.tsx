@@ -85,7 +85,7 @@ export function AudienceChips({
           );
           return depts.length ? (
             <div key={f.id} className="flex flex-wrap items-center gap-2">
-              <span className="w-12 text-xs font-medium text-zinc-500">F{f.code}</span>
+              <span className="w-full text-xs font-medium text-zinc-500">{f.name}</span>
               {depts.map((d) => (
                 <button
                   key={d.id}

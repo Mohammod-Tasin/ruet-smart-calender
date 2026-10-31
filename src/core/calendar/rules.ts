@@ -1,4 +1,11 @@
-import { addDays, hijriMonthEnd, hijriToGregorian, hijriYearsAround, weekdayOf } from './hijri';
+import {
+  addDays,
+  hijriMonthEnd,
+  hijriToGregorian,
+  hijriYearsAround,
+  msOf,
+  weekdayOf,
+} from './hijri';
 import type { AudienceEntry } from './types';
 
 /** Add a category here (and its colour in src/lib/categories.ts). */
@@ -200,3 +207,54 @@ export const shiftDates = (d: RuleDates, n: number): RuleDates => ({
   startDate: addDays(d.startDate, n),
   endDate: addDays(d.endDate, n),
 });
+
+const dayDiff = (a: string, b: string) => Math.round((msOf(a) - msOf(b)) / 86_400_000);
+
+/**
+ * The rule pattern that makes `year` come out as `pattern` ("this year and every year after").
+ * `computed` is what the rule computes for that year before any override. Fixed-date rules take the
+ * new month, day and length. Hijri rules keep their moon dates and move both offsets by the same
+ * number of days the admin moved the start and end, so the shift follows the moon every year.
+ */
+export function patternParams(
+  params: RuleParams,
+  computed: RuleDates | null,
+  pattern: RuleDates,
+): { ok: true; params: RuleParams } | { ok: false; message: string } {
+  if (params.kind === 'GREGORIAN_FIXED') {
+    return {
+      ok: true,
+      params: {
+        kind: 'GREGORIAN_FIXED',
+        month: Number(pattern.startDate.slice(5, 7)),
+        day: Number(pattern.startDate.slice(8, 10)),
+        lengthDays: dayDiff(pattern.endDate, pattern.startDate) + 1,
+      },
+    };
+  }
+  if (params.kind === 'HIJRI' && 'startHijri' in params) {
+    if (!computed) return { ok: false, message: 'This holiday has no computed dates this year.' };
+    const startShift = dayDiff(pattern.startDate, computed.startDate);
+    const endShift = dayDiff(pattern.endDate, computed.endDate);
+    const startOffset = params.startHijri.offsetDays + startShift;
+    const endOffset = params.endHijri.offsetDays + endShift;
+    if (Math.abs(startOffset) > 60 || Math.abs(endOffset) > 60) {
+      return {
+        ok: false,
+        message: 'That is too far from the moon-based date to repeat every year.',
+      };
+    }
+    return {
+      ok: true,
+      params: {
+        ...params,
+        startHijri: { ...params.startHijri, offsetDays: startOffset },
+        endHijri: { ...params.endHijri, offsetDays: endOffset },
+      },
+    };
+  }
+  return {
+    ok: false,
+    message: 'This holiday has no fixed yearly pattern. Change it for one year at a time.',
+  };
+}

@@ -16,8 +16,12 @@ export async function GET(req: Request) {
   if (holidayId === null)
     return jsonError(400, 'BAD_REQUEST', 'holidayId must be a positive integer.');
 
+  const rawRule = new URL(req.url).searchParams.get('ruleId');
+  const ruleId = rawRule === null ? undefined : parseId(rawRule);
+  if (ruleId === null) return jsonError(400, 'BAD_REQUEST', 'ruleId must be a positive integer.');
+
   try {
-    return okJson({ entries: await listAudit({ holidayId }) });
+    return okJson({ entries: await listAudit({ holidayId, ruleId }) });
   } catch (e) {
     return internalError(e);
   }

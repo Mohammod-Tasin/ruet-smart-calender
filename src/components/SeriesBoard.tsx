@@ -10,6 +10,7 @@ import {
   type JPhase,
   type JourneyStructure,
 } from '@/core/journey/journey';
+import { fieldsFromStructure, type ScheduleFields } from '@/core/journey/schedule';
 import { api, type ApiStructure } from '@/lib/api';
 import { useStatus, useStructure } from '@/lib/hooks';
 import {
@@ -20,6 +21,7 @@ import {
   type JourneyResponse,
   type StatusEntry,
 } from '@/lib/journey-ui';
+import { ScheduleForm } from './ScheduleForm';
 import { Sheet } from './Sheet';
 import { StatusMatrix } from './StatusMatrix';
 import { useToast } from './Toast';
@@ -127,6 +129,7 @@ function WhereSheet({
   const [week, setWeek] = useState<number | null>(running ? now.weekNo : null);
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [schedule, setSchedule] = useState(false);
 
   const all = useMemo(
     () =>
@@ -249,6 +252,12 @@ function WhereSheet({
           </Group>
         )}
 
+        {sem !== null && chosen.length > 0 && (
+          <button type="button" className="text-sm underline" onClick={() => setSchedule(true)}>
+            This semester has a different schedule
+          </button>
+        )}
+
         {target.kind === 'series' && (
           <SavedPositions seriesId={target.entry.seriesId} onChanged={onSaved} />
         )}
@@ -289,6 +298,85 @@ function WhereSheet({
           </div>
         </div>
       </div>
+      {schedule && sem !== null && (
+        <ScheduleSheet
+          semesterNo={sem}
+          who={who}
+          seriesIds={chosen.map((e) => e.seriesId)}
+          defaults={fieldsFromStructure(settings)}
+          onClose={() => setSchedule(false)}
+          onSaved={onSaved}
+        />
+      )}
+    </Sheet>
+  );
+}
+
+/**
+ * One semester with a different schedule (e.g. CME-21 4-2 had its mid-term break after week 8).
+ * Pre-filled with what the first chosen series has now; a whole batch starts from the default.
+ */
+function ScheduleSheet({
+  semesterNo,
+  who,
+  seriesIds,
+  defaults,
+  onClose,
+  onSaved,
+}: {
+  semesterNo: number;
+  who: string;
+  seriesIds: number[];
+  defaults: ScheduleFields | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const base = defaults ?? fieldsFromStructure(DEFAULT_STRUCTURE)!;
+  // A whole batch starts from the default; one series shows what it has now (loaded below).
+  const [now, setNow] = useState<{ fields: ScheduleFields; breakStart: string | null } | null>(
+    seriesIds.length === 1 ? null : { fields: base, breakStart: null },
+  );
+
+  useEffect(() => {
+    if (seriesIds.length !== 1) return;
+    api<JourneyResponse>(`/api/series/${seriesIds[0]}/journey?_=${Date.now()}`).then((r) => {
+      const own = r.ok ? r.data.schedules.find((x) => x.semesterNo === semesterNo)?.fields : null;
+      const s = r.ok ? r.data.semesters.find((x) => x.semesterNo === semesterNo) : null;
+      setNow({ fields: own ?? base, breakStart: s?.midBreakStart ?? null });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <Sheet title={`Semester ${semLabel(semesterNo)} schedule · ${who}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Only this semester changes. The next one goes back to the usual schedule.
+        </p>
+        {!now ? (
+          <p className="text-sm">Loading…</p>
+        ) : (
+          <ScheduleForm
+            initial={now.fields}
+            expectedBreak={now.breakStart}
+            busy={busy}
+            onCancel={onClose}
+            onSave={async (fields) => {
+              setBusy(true);
+              const r = await api('/api/admin/schedules', {
+                method: 'POST',
+                body: { seriesIds, semesterNo, fields },
+              });
+              setBusy(false);
+              if (!r.ok) return toast(r.message, 'error');
+              toast('Schedule saved.');
+              onSaved();
+            }}
+          />
+        )}
+      </div>
     </Sheet>
   );
 }
@@ -327,24 +415,34 @@ function Chip({
 function SavedPositions({ seriesId, onChanged }: { seriesId: number; onChanged: () => void }) {
   const toast = useToast();
   const [rows, setRows] = useState<JourneyResponse['positions'] | null>(null);
+  const [schedules, setSchedules] = useState<JourneyResponse['schedules']>([]);
   const [version, setVersion] = useState(0);
   useEffect(() => {
     let live = true;
     api<JourneyResponse>(`/api/series/${seriesId}/journey?_=${Date.now()}`).then((r) => {
-      if (live) setRows(r.ok ? r.data.positions : []);
+      if (!live) return;
+      setRows(r.ok ? r.data.positions : []);
+      setSchedules(r.ok ? r.data.schedules.filter((x) => x.fields) : []);
     });
     return () => {
       live = false;
     };
   }, [seriesId, version]);
 
-  if (!rows || rows.length === 0) return null;
+  if (!rows || rows.length + schedules.length === 0) return null;
   return (
     <details className="rounded-lg border border-zinc-200 dark:border-zinc-800">
       <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-        Change history ({rows.length})
+        Change history ({rows.length + schedules.length})
       </summary>
       <ul className="space-y-1 px-3 pb-3 text-sm">
+        {schedules.map((x) => (
+          <li key={`s${x.semesterNo}`}>
+            Semester {semLabel(x.semesterNo)} · different schedule: classes{' '}
+            {x.fields!.classesBefore} + {x.fields!.classesAfter}, Board Viva {x.fields!.vivaWeeks},
+            Final {x.fields!.finalWeeks}
+          </li>
+        ))}
         {rows.map((p) => (
           <li key={p.id} className="flex flex-wrap items-center gap-x-2">
             <span>

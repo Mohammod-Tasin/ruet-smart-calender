@@ -1,3 +1,4 @@
+import { confirmPastSchema, formatIssues } from '@/core/validation/holiday';
 import { internalError, jsonError } from '@/server/http/errors';
 import { guardMutation, requireAdmin } from '@/server/http/guard';
 import { failure, okJson, parseId } from '@/server/http/result';
@@ -14,8 +15,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const id = parseId((await ctx.params).id);
   if (id === null) return jsonError(400, 'BAD_REQUEST', 'Invalid id.');
 
+  const parsed = confirmPastSchema.safeParse(guard.body ?? {});
+  if (!parsed.success) return jsonError(400, 'BAD_REQUEST', formatIssues(parsed.error));
+
   try {
-    const result = await restoreHoliday(auth.admin.id, id);
+    const result = await restoreHoliday(auth.admin.id, id, parsed.data);
     return result.ok ? okJson(result.value) : failure(result);
   } catch (e) {
     return internalError(e);

@@ -10,6 +10,8 @@ export interface TaskSeries {
   intakeYear: number;
   /** Null when the series has no position at all. */
   journey: Journey | null;
+  /** Semesters whose mid-term break an admin already answered (confirmed or changed). */
+  breakChecked?: number[];
 }
 
 export interface TaskInput {
@@ -33,6 +35,16 @@ export type Task =
       /** Every series projects the same start date. */
       uniform: boolean;
       items: { seriesId: number; label: string; projectedStart: string }[];
+    }
+  | {
+      type: 'MID_BREAK_CHECK';
+      intakeYear: number;
+      semesterNo: number;
+      /** The Saturday the mid-term break is expected to start. */
+      expectedStart: string;
+      /** The break comes after this class week. */
+      afterClassWeek: number;
+      items: { seriesId: number; label: string }[];
     }
   | { type: 'NEW_BATCH'; intakeYear: number; seriesIds: number[]; labels: string[] }
   | { type: 'SET_STATUS'; seriesIds: number[]; labels: string[] }
@@ -83,6 +95,38 @@ export function computeTasks(input: TaskInput): Task[] {
       a.intakeYear - b.intakeYear,
   );
 
+  // 1b. Mid-term break due within 14 days and nobody has answered yet. It goes away the day the
+  // break starts; ignoring it is safe because the default keeps running.
+  const breaks = new Map<string, Extract<Task, { type: 'MID_BREAK_CHECK' }>>();
+  for (const s of input.series) {
+    for (const sem of s.journey?.semesters ?? []) {
+      const start = sem.midBreakStart;
+      if (!start || s.breakChecked?.includes(sem.semesterNo)) continue;
+      if (today >= start || addDays(today, 14) < start) continue;
+      const classWeeks = s.journey!.weeks.filter(
+        (w) =>
+          w.semesterNo === sem.semesterNo &&
+          w.phase === 'CLASS' &&
+          w.status === 'COUNTED' &&
+          w.weekStart < start,
+      ).length;
+      const key = `${s.intakeYear}:${sem.semesterNo}:${start}`;
+      const g = breaks.get(key) ?? {
+        type: 'MID_BREAK_CHECK' as const,
+        intakeYear: s.intakeYear,
+        semesterNo: sem.semesterNo,
+        expectedStart: start,
+        afterClassWeek: classWeeks,
+        items: [],
+      };
+      g.items.push({ seriesId: s.seriesId, label: s.label });
+      breaks.set(key, g);
+    }
+  }
+  const breakChecks = [...breaks.values()].sort(
+    (a, b) => a.expectedStart.localeCompare(b.expectedStart) || a.intakeYear - b.intakeYear,
+  );
+
   // 2. Series with no position at all. Only a batch admitted this year (or later) can still be at
   // 1-1 day one; every older batch is already running, so it gets "set current status" and never a
   // date field that could reset it to 1-1.
@@ -127,5 +171,5 @@ export function computeTasks(input: TaskInput): Task[] {
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const moon: Task[] = soon.length ? [{ type: 'CONFIRM_MOON', items: soon }] : [];
 
-  return [...starts, ...status, ...batches, ...yearly, ...moon];
+  return [...starts, ...breakChecks, ...status, ...batches, ...yearly, ...moon];
 }

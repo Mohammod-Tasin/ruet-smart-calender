@@ -50,6 +50,13 @@
       "when": 1793347552636,
       "tag": "0006_faculty_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793446807286,
+      "tag": "0007_chubby_avengers",
+      "breakpoints": true
     }
   ]
 }

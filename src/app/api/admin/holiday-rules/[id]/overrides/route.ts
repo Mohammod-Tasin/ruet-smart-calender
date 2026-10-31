@@ -21,6 +21,6 @@ export async function DELETE(req: Request, ctx: Ctx) {
   const id = parseId((await ctx.params).id);
   if (id === null) return jsonError(400, 'BAD_REQUEST', 'Invalid id.');
   return adminMutation(req, clearOverrideSchema, (admin, body) =>
-    clearOverride(admin, id, body.year),
+    clearOverride(admin, id, body.year, { confirmPast: body.confirmPast }),
   );
 }

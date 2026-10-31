@@ -1,4 +1,5 @@
 import { todayInDhaka } from '@/core/calendar/grid';
+import { addDays } from '@/core/calendar/hijri';
 import { monthShort } from '@/core/calendar/months';
 import {
   semesterLabel,
@@ -7,6 +8,7 @@ import {
   type JourneyWeek,
   type JPhase,
 } from '@/core/journey/journey';
+import type { ScheduleFields } from '@/core/journey/schedule';
 import type { ApiStructure } from './api';
 
 // Shapes of /api/status and /api/series/[id]/journey, plus the wording for them.
@@ -40,6 +42,10 @@ export interface JourneyResponse {
   weeks: JourneyWeek[];
   graduation: string | null;
   positions: PositionRow[];
+  /** Semesters with their own schedule, or an answered mid-term break. */
+  schedules: { semesterNo: number; fields: ScheduleFields | null; midBreakConfirmed: boolean }[];
+  /** The default four numbers (null if the stored structure is not the usual shape). */
+  defaultFields: ScheduleFields | null;
 }
 
 /** Series are shown as "CSE-23". */
@@ -115,6 +121,23 @@ export function headline(e: StatusEntry): string {
     }
   }
   return parts.filter(Boolean).join(' · ');
+}
+
+/** Week-strip tooltip: "Sat 3 Oct – Wed 7 Oct · Class week 2" or "… · Holiday week: Sanatani Holiday". */
+export function weekTip(
+  w: Pick<JourneyWeek, 'weekStart' | 'status' | 'phase' | 'weekNo' | 'skipReasons'>,
+) {
+  const day = (iso: string, name: string) =>
+    `${name} ${Number(iso.slice(8, 10))} ${monthShort(iso)}`;
+  const what =
+    w.status === 'SKIPPED'
+      ? `Holiday week${w.skipReasons[0] ? `: ${w.skipReasons[0].title}` : ''}`
+      : w.phase === 'CLASS'
+        ? `Class week ${w.weekNo}`
+        : w.phase === 'EXAM'
+          ? `${PHASE_LABEL.EXAM} · week ${w.weekNo}`
+          : PHASE_LABEL[w.phase];
+  return `${day(w.weekStart, 'Sat')} – ${day(addDays(w.weekStart, 4), 'Wed')} · ${what}`;
 }
 
 /** "Sanatani Holiday (17–21 Oct)" */

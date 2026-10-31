@@ -117,7 +117,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
                 No holiday on this day{filtering ? ' for your series' : ''}.
               </p>
             ) : (
-              dayHolidays.map((h) => <HolidayCard key={h.id} holiday={h} />)
+              dayHolidays.map((h) => <HolidayCard key={h.id} holiday={h} offDays={offDays} />)
             )}
             {dateInMonth(openDate) !== ym && (
               <button

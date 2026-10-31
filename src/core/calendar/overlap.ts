@@ -1,4 +1,4 @@
-import { compressAudience, coveredSeriesIds } from './compress';
+import { compressAudience, coveredSeriesIds, facultyName } from './compress';
 import type { AudienceEntry, Structure } from './types';
 
 export interface OverlapInput {
@@ -46,6 +46,7 @@ export function findOverlaps<T extends OverlapInput & { id: number | string }>(
       sharedLabel: compressAudience(
         shared.map((id) => ({ scopeType: 'SERIES' as const, scopeId: id })),
         structure,
+        facultyName,
       ),
     });
   }

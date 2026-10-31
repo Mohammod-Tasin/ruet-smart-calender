@@ -9,6 +9,7 @@ import { AudienceChips } from './AudienceChips';
 import { ImpactPreview } from './ImpactPreview';
 import { OverlapLine, useOverlap } from './OverlapLine';
 import { Sheet } from './Sheet';
+import { PastNote } from './PastConfirm';
 import { TrimHint } from './TrimHint';
 
 export type EditorTarget =
@@ -119,6 +120,8 @@ function HolidayForm({
   const [selected, setSelected] = useState(initial.selected);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when the server asked for the "Fix a past holiday" confirm; the next save sends it.
+  const [pastMsg, setPastMsg] = useState<string | null>(null);
 
   const audience = useMemo(() => audienceFromSeries(selected, structure), [selected, structure]);
   const datesOk = isRealDate(start) && isRealDate(end) && end >= start;
@@ -147,6 +150,7 @@ function HolidayForm({
     if (audience.length === 0) return setError('Choose who is off.');
 
     const confirmOverlap = shown.length > 0 ? true : undefined;
+    const confirmPast = pastMsg ? true : undefined;
     const editing = initial.excludeId !== undefined;
     let request: Promise<Awaited<ReturnType<typeof api>>>;
     if (!editing) {
@@ -160,6 +164,7 @@ function HolidayForm({
           endDate: end,
           audience,
           confirmOverlap,
+          confirmPast,
         },
       });
     } else {
@@ -174,7 +179,7 @@ function HolidayForm({
       if (Object.keys(patch).length === 0) return onDone('Nothing to change.');
       request = api(`/api/admin/holidays/${initial.excludeId}`, {
         method: 'PATCH',
-        body: { ...patch, confirmOverlap },
+        body: { ...patch, confirmOverlap, confirmPast },
       });
     }
     setSaving(true);
@@ -186,6 +191,7 @@ function HolidayForm({
       const done = editing ? 'Holiday updated.' : 'Holiday added.';
       return onDone(trimmed ? `${done} ${trimNote(trimmed, offDays)}` : done);
     }
+    if (r.code === 'PAST_CONFIRM') return setPastMsg(r.message);
     if (r.code === 'OVERLAP' && r.conflicts) {
       setConflicts(r.conflicts);
       return setError('This overlaps another holiday. Check it, then press "Save anyway".');
@@ -261,6 +267,7 @@ function HolidayForm({
 
       <ImpactPreview change={impactChange} />
 
+      {pastMsg && <PastNote message={pastMsg} />}
       {error && (
         <p role="alert" className="text-sm text-red-700 dark:text-red-400">
           {error}
@@ -273,7 +280,13 @@ function HolidayForm({
           disabled={saving}
           className={`rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${shown.length ? 'bg-amber-600' : 'bg-indigo-600'}`}
         >
-          {saving ? 'Saving…' : shown.length ? 'Save anyway' : 'Save'}
+          {saving
+            ? 'Saving…'
+            : pastMsg
+              ? 'Fix a past holiday'
+              : shown.length
+                ? 'Save anyway'
+                : 'Save'}
         </button>
         <button
           type="button"

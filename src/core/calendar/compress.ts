@@ -1,4 +1,4 @@
-import type { AudienceEntry, Structure } from './types';
+import type { AudienceEntry, FacultyInfo, Structure } from './types';
 
 const SEPARATOR = ' · ';
 
@@ -40,8 +40,15 @@ export function appliesToSeries(
  * all active series of a department -> `CSE`; all departments of a faculty -> `FECE`;
  * everything -> `ALL`. Otherwise lists what is left, e.g. `CSE · EEE-22`.
  * Order: faculty sort_order, department code, intake year descending.
+ * `facultyLabel` builds the text of a full faculty (code by default; the API passes `facultyName`).
  */
-export function compressAudience(audience: AudienceEntry[], structure: Structure): string {
+export const facultyName = (f: FacultyInfo) => f.name ?? f.code;
+
+export function compressAudience(
+  audience: AudienceEntry[],
+  structure: Structure,
+  facultyLabel: (f: FacultyInfo) => string = (f) => f.code,
+): string {
   const covered = coveredSeriesIds(audience, structure);
   if (covered.size === 0) return '';
 
@@ -72,7 +79,7 @@ export function compressAudience(audience: AudienceEntry[], structure: Structure
     const fullDepts = depts.filter((d) => activeByDept.get(d.id)!.every((s) => covered.has(s.id)));
     if (fullDepts.length === depts.length) {
       facultiesFull++;
-      parts.push(f.code);
+      parts.push(facultyLabel(f));
       continue;
     }
 
