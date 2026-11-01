@@ -21,11 +21,11 @@ const block = (phase: JourneyStructure[number]['phase'], weeks: number, extendab
 /** CLASS · MID_BREAK 1 · CLASS · VIVA · EXAM · SEMESTER_BREAK 1, like the default. */
 export const structureFromFields = (f: ScheduleFields): JourneyStructure => [
   ...block('CLASS', f.classesBefore, true),
-  { phase: 'MID_BREAK', weeks: 1, extendable: false },
+  { phase: 'MID_BREAK', weeks: 1, extendable: true },
   ...block('CLASS', f.classesAfter, true),
   ...block('VIVA', f.vivaWeeks, true),
   ...block('EXAM', f.finalWeeks, true),
-  { phase: 'SEMESTER_BREAK', weeks: 1, extendable: false },
+  { phase: 'SEMESTER_BREAK', weeks: 1, extendable: true },
 ];
 
 /** The four numbers of a structure, or null if it is not shaped like the default. */

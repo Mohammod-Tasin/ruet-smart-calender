@@ -85,7 +85,7 @@ export const approxDate = (iso: string, confirmed: boolean) =>
 /** Matrix cell: 2-3 words. */
 export function cellText(s: JourneyState): string {
   if (s.status !== 'RUNNING' || !s.phase) return 'No data';
-  if (s.onSkippedWeek) return 'Holiday';
+  if (s.onSkippedWeek) return s.onUnofficialBreak ? 'Unofficial Break' : 'Holiday';
   const w = s.weekNo ?? 1;
   if (s.phase === 'CLASS') return `Class ${w}/${s.phaseWeeks ?? '?'}`;
   if (s.phase === 'EXAM') return `Final ${w}/${s.phaseWeeks ?? '?'}`;
@@ -95,7 +95,7 @@ export function cellText(s: JourneyState): string {
 /** Full sentence for the current phase: "Semester Final · week 2 of 4". */
 export function runningText(s: JourneyState): string {
   if (s.status !== 'RUNNING' || !s.phase) return '';
-  if (s.onSkippedWeek) return 'Holiday week';
+  if (s.onSkippedWeek) return s.onUnofficialBreak ? 'Unofficial Break' : 'Holiday week';
   const of = s.phaseWeeks ? ` of ${s.phaseWeeks}` : '';
   if (s.phase === 'CLASS') return `Class week ${s.weekNo ?? 1}${of}`;
   if (s.phase === 'EXAM') return `${PHASE_LABEL.EXAM} · week ${s.weekNo ?? 1}${of}`;
@@ -129,14 +129,23 @@ export function weekTip(
 ) {
   const day = (iso: string, name: string) =>
     `${name} ${Number(iso.slice(8, 10))} ${monthShort(iso)}`;
+  const isUnofficial = w.skipReasons.some(
+    (r) =>
+      r.category === 'UNOFFICIAL_BREAK' ||
+      r.category === 'SUSPENDED_WEEK' ||
+      /unofficial|auto|suspend/i.test(r.title),
+  );
   const what =
     w.status === 'SKIPPED'
-      ? `Holiday week${w.skipReasons[0] ? `: ${w.skipReasons[0].title}` : ''}`
+      ? `${isUnofficial ? 'Unofficial break' : 'Holiday week'}${w.skipReasons[0] ? `: ${w.skipReasons[0].title}` : ''}`
       : w.phase === 'CLASS'
         ? `Class week ${w.weekNo}`
         : w.phase === 'EXAM'
           ? `${PHASE_LABEL.EXAM} · week ${w.weekNo}`
           : PHASE_LABEL[w.phase];
+  if (w.phase === 'MID_BREAK') {
+    return `${day(addDays(w.weekStart, -2), 'Thu')} – ${day(addDays(w.weekStart, 4), 'Wed')} · ${what}`;
+  }
   return `${day(w.weekStart, 'Sat')} – ${day(addDays(w.weekStart, 4), 'Wed')} · ${what}`;
 }
 
@@ -149,31 +158,38 @@ export const weeksText = (n: number) => `${n} week${n === 1 ? '' : 's'}`;
 // Full class names, so Tailwind sees them.
 export const PHASE_STYLE: Record<JPhase, { cell: string; strip: string }> = {
   CLASS: {
-    cell: 'bg-blue-100 text-blue-950 dark:bg-blue-950 dark:text-blue-100',
-    strip: 'bg-blue-500 dark:bg-blue-600',
+    cell: 'bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-100',
+    strip: 'bg-emerald-500 dark:bg-emerald-600',
   },
   MID_BREAK: {
-    cell: 'bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100',
-    strip: 'bg-amber-400 dark:bg-amber-500',
+    cell: 'bg-orange-100 text-orange-950 dark:bg-orange-950 dark:text-orange-100',
+    strip: 'bg-orange-500 dark:bg-orange-600',
   },
   VIVA: {
     cell: 'bg-purple-100 text-purple-950 dark:bg-purple-950 dark:text-purple-100',
     strip: 'bg-purple-500 dark:bg-purple-600',
   },
   EXAM: {
-    cell: 'bg-orange-100 text-orange-950 dark:bg-orange-950 dark:text-orange-100',
-    strip: 'bg-orange-500 dark:bg-orange-600',
+    cell: 'bg-blue-100 text-blue-950 dark:bg-blue-950 dark:text-blue-100',
+    strip: 'bg-blue-500 dark:bg-blue-600',
   },
   SEMESTER_BREAK: {
-    cell: 'bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-100',
-    strip: 'bg-emerald-500 dark:bg-emerald-600',
+    cell: 'bg-orange-100 text-orange-950 dark:bg-orange-950 dark:text-orange-100',
+    strip: 'bg-orange-600 dark:bg-orange-700',
   },
 };
 export const NONE_CELL =
   'border border-dashed border-zinc-300 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400';
-/** A skipped (holiday) week: grey with diagonal hatching. */
-export const SKIPPED_STRIP =
-  'bg-zinc-300 [background-image:repeating-linear-gradient(45deg,transparent_0_3px,rgb(0_0_0/0.35)_3px_5px)] dark:bg-zinc-600 dark:[background-image:repeating-linear-gradient(45deg,transparent_0_3px,rgb(255_255_255/0.35)_3px_5px)]';
+
+/** A regular holiday week: reddish with diagonal hatching. */
+export const HOLIDAY_STRIP =
+  'bg-rose-400 [background-image:repeating-linear-gradient(45deg,transparent_0_3px,rgb(190_18_60/0.45)_3px_5px)] dark:bg-rose-800 dark:[background-image:repeating-linear-gradient(45deg,transparent_0_3px,rgb(255_255_255/0.35)_3px_5px)]';
+
+/** An unofficial break / suspension week: solid ash color. */
+export const UNOFFICIAL_STRIP =
+  'bg-zinc-300 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100';
+
+export const SKIPPED_STRIP = HOLIDAY_STRIP;
 
 /** The series of a department code + intake year, if it exists. */
 export const findSeries = (st: ApiStructure, deptCode: string, year: number) => {

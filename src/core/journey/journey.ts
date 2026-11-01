@@ -16,11 +16,11 @@ export type JourneyStructure = StructureBlock[];
 
 export const DEFAULT_STRUCTURE: JourneyStructure = [
   { phase: 'CLASS', weeks: 7, extendable: true },
-  { phase: 'MID_BREAK', weeks: 1, extendable: false },
+  { phase: 'MID_BREAK', weeks: 1, extendable: true },
   { phase: 'CLASS', weeks: 6, extendable: true },
   { phase: 'VIVA', weeks: 1, extendable: true },
   { phase: 'EXAM', weeks: 4, extendable: true },
-  { phase: 'SEMESTER_BREAK', weeks: 1, extendable: false },
+  { phase: 'SEMESTER_BREAK', weeks: 1, extendable: true },
 ];
 
 export const SEMESTERS = 8; // 1-1 ... 4-2
@@ -38,7 +38,9 @@ export function buildSlots(structure: JourneyStructure): Slot[] {
   return structure.flatMap((b, block) =>
     Array.from({ length: b.weeks }, () => {
       const weekNo = (seen[b.phase] = (seen[b.phase] ?? 0) + 1);
-      return { phase: b.phase, weekNo, block, extendable: b.extendable };
+      const extendable =
+        b.phase === 'MID_BREAK' || b.phase === 'SEMESTER_BREAK' ? true : (b.extendable ?? true);
+      return { phase: b.phase, weekNo, block, extendable };
     }),
   );
 }
@@ -75,6 +77,7 @@ export interface JourneyInput {
   isOffDay: (date: string) => boolean;
   /** Holiday titles on a date; only used for the "why was it delayed" text. */
   titlesOn?: (date: string) => string[];
+  reasonsOn?: (date: string) => { title: string; category?: string }[];
   /** JS weekdays (0 = Sunday) that are weekly off days. Default Thu, Fri. */
   weeklyOff?: number[];
   /** Stop after the week containing this date (default: run to graduation). */
@@ -84,6 +87,7 @@ export interface JourneyInput {
 /** One holiday inside one skipped week: its title and the working days of that week it covers. */
 export interface SkipReason {
   title: string;
+  category?: string;
   start: string;
   end: string;
   days: number;
@@ -157,10 +161,14 @@ export function computeJourney(input: JourneyInput): Journey {
   const reasons = (w: string): SkipReason[] => {
     const byTitle = new Map<string, SkipReason>();
     for (const d of working(w)) {
-      for (const title of new Set(input.titlesOn?.(d) ?? [])) {
-        const r = byTitle.get(title);
+      const items: { title: string; category?: string }[] = input.reasonsOn ? input.reasonsOn(d) : (input.titlesOn?.(d) ?? []).map((t) => ({ title: t }));
+      const seen = new Set<string>();
+      for (const item of items) {
+        if (seen.has(item.title)) continue;
+        seen.add(item.title);
+        const r = byTitle.get(item.title);
         if (r) Object.assign(r, { end: d, days: r.days + 1 });
-        else byTitle.set(title, { title, start: d, end: d, days: 1 });
+        else byTitle.set(item.title, { title: item.title, category: item.category, start: d, end: d, days: 1 });
       }
     }
     return [...byTitle.values()].sort((a, b) => b.days - a.days);
@@ -320,6 +328,8 @@ export interface JourneyState {
   phaseWeeks: number | null;
   /** This very week is a skipped (holiday) week. */
   onSkippedWeek: boolean;
+  /** True when the current skipped week is an unofficial break (Auto) or suspension. */
+  onUnofficialBreak?: boolean;
   confirmed: boolean;
   nextMilestone: Milestone | null;
   /** First class day of the next semester (null in the last one). `confirmed` false = "~". */
@@ -381,11 +391,11 @@ export function stateOn(j: Journey, date: string): JourneyState {
     );
   const nextMilestone: Milestone | null = next
     ? {
-        semesterNo: next.semesterNo,
-        phase: next.phase,
-        date: next.weekStart,
-        confirmed: next.confirmed,
-      }
+      semesterNo: next.semesterNo,
+      phase: next.phase,
+      date: next.weekStart,
+      confirmed: next.confirmed,
+    }
     : j.graduation
       ? { semesterNo: null, phase: 'GRADUATION', date: j.graduation, confirmed: false }
       : null;
@@ -406,6 +416,14 @@ export function stateOn(j: Journey, date: string): JourneyState {
         .map((w) => w.weekNo),
     ),
     onSkippedWeek: now.status === 'SKIPPED',
+    onUnofficialBreak:
+      now.status === 'SKIPPED' &&
+      now.skipReasons.some(
+        (r) =>
+          r.category === 'UNOFFICIAL_BREAK' ||
+          r.category === 'SUSPENDED_WEEK' ||
+          /unofficial|auto|suspend/i.test(r.title),
+      ),
     confirmed: now.confirmed,
     nextMilestone,
     nextSemester: nextSem

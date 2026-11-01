@@ -105,6 +105,7 @@ export interface ProposedChange {
 export interface OffItem {
   id: number | string;
   title: string;
+  category?: string;
   startDate: string;
   endDate: string;
   audience: AudienceEntry[];

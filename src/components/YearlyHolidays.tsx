@@ -4,18 +4,18 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audienceFromSeries } from '@/core/calendar/audience';
 import { coveredSeriesIds } from '@/core/calendar/compress';
-import { addDays } from '@/core/calendar/hijri';
 import { todayInDhaka } from '@/core/calendar/grid';
+import { addDays, msOf } from '@/core/calendar/hijri';
+import { MONTHS_SHORT } from '@/core/calendar/months';
 import type { HijriPoint, RuleDef, RuleKind, RuleParams, RuleYear } from '@/core/calendar/rules';
-import { api, type ApiStructure } from '@/lib/api';
-import { audienceText, dateRange, stamp, trimNote } from '@/lib/format';
-import { useStructure } from '@/lib/hooks';
-import { HIJRI_MONTHS, KIND_LABEL, WEEKDAYS_EN, ruleName, ruleSummary } from '@/lib/rule-summary';
 import type { ImpactGroup } from '@/core/journey/impact';
+import { api, clearHolidayCache, type ApiStructure } from '@/lib/api';
+import { audienceText, dateRange, stamp } from '@/lib/format';
+import { useStructure } from '@/lib/hooks';
+import { HIJRI_MONTHS, ruleName, ruleSummary, WEEKDAYS_EN } from '@/lib/rule-summary';
 import { AudiencePicker } from './AudiencePicker';
 import { hasChange, ImpactGroups, ImpactPreview, useShiftConfirm } from './ImpactPreview';
 import { Sheet } from './Sheet';
-import { TrimHint } from './TrimHint';
 import { useToast } from './Toast';
 
 interface RuleItem extends RuleDef {
@@ -43,13 +43,18 @@ const field =
   'mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900';
 
 type Dialog =
-  | { kind: 'rule'; rule: RuleItem | null }
+  | { kind: 'rule'; rule: RuleItem | null; defaultKind?: RuleKind }
+  | { kind: 'quick-variable' }
   | { kind: 'end'; rule: RuleItem }
   | { kind: 'dates'; rule: RuleItem; year: number }
   | { kind: 'year'; year: number };
 
-/** The yearly list, shown inside the admin calendar screen (needs the admin shell's toasts). */
-export function YearlyHolidays({ offDays }: { offDays: number[] }) {
+/**
+ * Common Holidays Manager (inside Admin -> Settings):
+ * 1a. Yearly Fixed Common Holidays (same date every year — e.g. 21 Feb, 26 March, 16 Dec)
+ * 1b. Yearly Variable Common Holidays (dates vary each year — e.g. Eid Vacation, Summer Vacation)
+ */
+export function YearlyHolidays() {
   const router = useRouter();
   const toast = useToast();
   const params = useSearchParams();
@@ -82,7 +87,7 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
     };
   }, [year, version, router]);
 
-  // Deep link from the calendar's "More" menu: ?rule=ID&do=edit|end opens that rule's form once.
+  // Deep link from the calendar: ?rule=ID&do=edit|end opens that rule's form once.
   const deepLinked = useRef(false);
   useEffect(() => {
     const id = Number(params.get('rule'));
@@ -92,22 +97,19 @@ export function YearlyHolidays({ offDays }: { offDays: number[] }) {
     setDialog(params.get('do') === 'end' ? { kind: 'end', rule } : { kind: 'rule', rule });
   }, [data, params]);
 
-  const reload = () => setVersion((v) => v + 1);
-  const setYear = (y: number) => router.replace(`/admin?tab=calendar&view=yearly&year=${y}`);
+  const reload = () => {
+    clearHolidayCache();
+    setVersion((v) => v + 1);
+  };
+  const setYear = (y: number) => router.replace(`/admin?tab=settings&year=${y}`);
 
-  /** One call for every write; shows the outcome and reloads. */
   const send = useCallback(
     async (path: string, method: string, body: unknown, done: string, ruleId?: number) => {
       if (ruleId) setBusy(ruleId);
       const call = (b: unknown) => api(`/api/admin/holiday-rules${path}`, { method, body: b });
       let r = await call(body);
-      // Fix a past holiday: the server says how many series change; repeat with the confirm.
       if (!r.ok && r.code === 'PAST_CONFIRM' && body && typeof body === 'object') {
-        if (
-          window.confirm(`${r.message}
-
-Fix a past holiday?`)
-        ) {
+        if (window.confirm(`${r.message}\n\nFix a past holiday?`)) {
           r = await call({ ...body, confirmPast: true });
         }
       }
@@ -119,23 +121,17 @@ Fix a past holiday?`)
         );
         return false;
       }
-      const trimmed = (r.data as { trimmed?: { startDate: string; endDate: string } } | null)
-        ?.trimmed;
-      toast(trimmed ? `${done} ${trimNote(trimmed, offDays)}` : done);
+      toast(done);
       setDialog(null);
       reload();
       return true;
     },
-    [toast, offDays],
+    [toast],
   );
 
   const override = (rule: RuleItem, body: Record<string, unknown>, done: string) =>
     send(`/${rule.id}/overrides`, 'PUT', { year, ...body }, done, rule.id);
 
-  /**
-   * One-click changes ask the server what they would do to running semesters first. If nothing
-   * moves, the change is applied straight away; otherwise the admin sees the impact and confirms.
-   */
   async function guarded(
     rule: RuleItem,
     newDates: { startDate: string; endDate: string } | null,
@@ -165,28 +161,10 @@ Fix a past holiday?`)
     );
   }
 
-  const today = todayInDhaka();
   const needed = data?.datesNeeded.filter((d) => d.rules.length > 0) ?? [];
   const rules = data?.rules ?? [];
-  const missing = rules.filter(
-    (r) =>
-      r.params.kind === 'MANUAL_YEARLY' && r.yearInfo && !r.yearInfo.final && !r.yearInfo.skipped,
-  );
-  const sighting = rules.filter((r) => {
-    const f = r.yearInfo?.final;
-    return (
-      r.params.kind === 'HIJRI' &&
-      !r.yearInfo?.skipped &&
-      !r.yearInfo?.confirmed &&
-      f?.tentative &&
-      f.startDate >= today &&
-      f.startDate <= addDays(today, 60)
-    );
-  });
-  const action = new Set([...missing, ...sighting].map((r) => r.id));
-  const fixed = rules.filter((r) => r.params.kind === 'GREGORIAN_FIXED');
-  const moon = rules.filter((r) => r.params.kind === 'HIJRI' && !action.has(r.id));
-  const manual = rules.filter((r) => r.params.kind === 'MANUAL_YEARLY' && !action.has(r.id));
+  const fixedRules = rules.filter((r) => r.params.kind === 'GREGORIAN_FIXED');
+  const variableRules = rules.filter((r) => r.params.kind !== 'GREGORIAN_FIXED');
 
   const row = (r: RuleItem) => (
     <RuleRow
@@ -195,7 +173,7 @@ Fix a past holiday?`)
       year={year}
       busy={busy === r.id}
       onEdit={() => setDialog({ kind: 'rule', rule: r })}
-      onEnd={() => setDialog({ kind: 'end', rule: r })}
+      onRemove={() => setDialog({ kind: 'end', rule: r })}
       onDates={() => setDialog({ kind: 'dates', rule: r, year })}
       onShift={(n) => shift(r, n)}
       onConfirm={() => {
@@ -210,7 +188,7 @@ Fix a past holiday?`)
           skipped ? null : (r.yearInfo?.computed ?? null),
           `${ruleName(r)}: ${skipped ? 'skip' : 'include'} ${year}`,
           () =>
-            override(r, { skipped }, skipped ? `Skipped for ${year}.` : `Restored for ${year}.`),
+            override(r, { skipped }, skipped ? `Removed for ${year}.` : `Restored for ${year}.`),
         )
       }
       onReset={() =>
@@ -222,45 +200,43 @@ Fix a past holiday?`)
   );
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-center gap-2 px-1">
-        <Link href="/admin?tab=calendar" className={small}>
-          ← Calendar
-        </Link>
-        <h2 className="mr-auto text-xl font-bold">Yearly holidays</h2>
-      </header>
-
-      <div className="flex flex-wrap items-center gap-2 px-1">
-        <button
-          type="button"
-          className={small}
-          onClick={() => setYear(year - 1)}
-          aria-label="Previous year"
-        >
-          ‹
-        </button>
-        <span className="min-w-14 text-center font-semibold">{year}</span>
-        <button
-          type="button"
-          className={small}
-          onClick={() => setYear(year + 1)}
-          aria-label="Next year"
-        >
-          ›
-        </button>
-        {year !== thisYear && (
-          <button type="button" className={small} onClick={() => setYear(thisYear)}>
-            This year
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-2 px-1">
+        <div>
+          <h2 className="text-lg font-bold">1. Common Holidays (For All)</h2>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400">
+            Manage Yearly Fixed Holidays (same date every year) and Yearly Variable Holidays (Eid,
+            Summer Vacation, etc.).
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Link href="/admin?tab=calendar" className={small}>
+            ← Calendar
+          </Link>
+          <button
+            type="button"
+            className={small}
+            onClick={() => setYear(year - 1)}
+            aria-label="Previous year"
+          >
+            ‹
           </button>
-        )}
-        <button
-          type="button"
-          className={`${small} ml-auto bg-indigo-600 text-white hover:bg-indigo-700 dark:hover:bg-indigo-500`}
-          onClick={() => setDialog({ kind: 'rule', rule: null })}
-        >
-          + Add yearly holiday
-        </button>
-      </div>
+          <span className="min-w-14 text-center font-semibold">{year}</span>
+          <button
+            type="button"
+            className={small}
+            onClick={() => setYear(year + 1)}
+            aria-label="Next year"
+          >
+            ›
+          </button>
+          {year !== thisYear && (
+            <button type="button" className={small} onClick={() => setYear(thisYear)}>
+              {thisYear}
+            </button>
+          )}
+        </div>
+      </header>
 
       {error && (
         <p role="alert" className="px-1 text-sm text-red-700 dark:text-red-400">
@@ -271,65 +247,119 @@ Fix a past holiday?`)
       {data === null && !error ? (
         <p className="px-1 text-sm">Loading…</p>
       ) : (
-        <div className="grid gap-3">
-          <section aria-label="Needs your action" className="space-y-2">
-            <h3 className="px-1 text-sm font-semibold">Needs your action</h3>
-            {needed.map((d) => (
-              <div
-                key={d.year}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950"
-              >
-                <p className="min-w-0 flex-1 text-sm text-amber-950 dark:text-amber-50">
-                  <b>
-                    Add {d.year} holiday dates ({d.rules.length}{' '}
-                    {d.rules.length === 1 ? 'holiday' : 'holidays'})
-                  </b>
-                  : {d.rules.map((r) => r.title).join(', ')}
-                </p>
-                <button
-                  type="button"
-                  className={`${small} bg-white dark:bg-zinc-900`}
-                  onClick={() => setDialog({ kind: 'year', year: d.year })}
-                >
-                  Add dates
-                </button>
-              </div>
-            ))}
-            {[...missing, ...sighting].map(row)}
-            {needed.length === 0 && action.size === 0 && (
-              <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Nothing needs your action.
+        <div className="space-y-5">
+          {/* Prompt banner if variable holidays still need dates for a year */}
+          {needed.map((d) => (
+            <div
+              key={d.year}
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950"
+            >
+              <p className="min-w-0 flex-1 text-sm text-amber-950 dark:text-amber-50">
+                <b>
+                  Set {d.year} dates ({d.rules.length}{' '}
+                  {d.rules.length === 1 ? 'holiday' : 'holidays'})
+                </b>
+                : {d.rules.map((r) => r.title).join(', ')}
               </p>
+              <button
+                type="button"
+                className={`${small} bg-white dark:bg-zinc-900`}
+                onClick={() => setDialog({ kind: 'year', year: d.year })}
+              >
+                Set dates now
+              </button>
+            </div>
+          ))}
+
+          {/* 1a. Yearly Fixed Holidays */}
+          <section className="space-y-2.5 rounded-lg border border-zinc-200 p-3.5 dark:border-zinc-800">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-bold">
+                  a. Yearly Fixed Holidays ({fixedRules.length})
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Days are fixed every year (e.g. 21 Feb, 26 March, 14 April, 16 Dec).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setDialog({ kind: 'rule', rule: null, defaultKind: 'GREGORIAN_FIXED' })
+                }
+                className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+              >
+                + Add Fixed Holiday
+              </button>
+            </div>
+
+            {fixedRules.length === 0 ? (
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                No yearly fixed holidays added yet.
+              </p>
+            ) : (
+              <div className="grid gap-2">{fixedRules.map(row)}</div>
             )}
           </section>
 
-          <Fold title="Automatic every year" count={fixed.length}>
-            {fixed.map(row)}
-          </Fold>
-          <Fold title="Moon-based" count={moon.length}>
-            {moon.map(row)}
-          </Fold>
-          {manual.length > 0 && (
-            <Fold title="Dates you entered" count={manual.length}>
-              {manual.map(row)}
-            </Fold>
-          )}
-          {rules.length === 0 && (
-            <p className="px-1 text-sm text-zinc-600 dark:text-zinc-400">No yearly holidays yet.</p>
-          )}
+          {/* 1b. Yearly Variable Holidays */}
+          <section className="space-y-2.5 rounded-lg border border-zinc-200 p-3.5 dark:border-zinc-800">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-bold">
+                  b. Yearly Variable Holidays ({variableRules.length})
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Dates change each year (e.g. Eid Vacation, Summer Vacation, Winter Vacation, Puja
+                  Vacation).
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDialog({ kind: 'quick-variable' })}
+                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+                >
+                  + Add Variable Holiday
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDialog({ kind: 'rule', rule: null, defaultKind: 'HIJRI' })}
+                  className={small}
+                >
+                  + Moon-based (Hijri)
+                </button>
+              </div>
+            </div>
+
+            {variableRules.length === 0 ? (
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                No yearly variable holidays added yet.
+              </p>
+            ) : (
+              <div className="grid gap-2">{variableRules.map(row)}</div>
+            )}
+          </section>
         </div>
       )}
-      {data && (
-        <p className="px-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Moon-based dates come from the Saudi (umalqura) calendar plus {data.bdOffset} day for
-          Bangladesh moon sighting, and stay &quot;expected&quot; until you confirm them.
-        </p>
+
+      {dialog?.kind === 'quick-variable' && (
+        <QuickVariableRuleForm
+          year={year}
+          onClose={() => setDialog(null)}
+          onSaved={(msg) => {
+            toast(msg);
+            setDialog(null);
+            reload();
+          }}
+        />
       )}
 
       {dialog?.kind === 'rule' && structure && (
         <RuleForm
           structure={structure}
           rule={dialog.rule}
+          defaultKind={dialog.defaultKind}
           defaultYear={year}
           onClose={() => setDialog(null)}
           onSave={(body, editingId) =>
@@ -339,16 +369,18 @@ Fix a past holiday?`)
           }
         />
       )}
+
       {dialog?.kind === 'end' && (
         <EndForm
           rule={dialog.rule}
           defaultYear={year}
           onClose={() => setDialog(null)}
           onEnd={(fromYear) =>
-            send(`/${dialog.rule.id}`, 'DELETE', { fromYear }, `Ended from ${fromYear}.`)
+            send(`/${dialog.rule.id}`, 'DELETE', { fromYear }, `Removed from ${fromYear} onward.`)
           }
         />
       )}
+
       {pending && (
         <Sheet title="Effect on semesters" onClose={() => setPending(null)}>
           <div className="space-y-4">
@@ -373,10 +405,10 @@ Fix a past holiday?`)
           </div>
         </Sheet>
       )}
+
       {dialog?.kind === 'year' && data && (
         <YearDatesForm
           year={dialog.year}
-          offDays={offDays}
           rules={data.rules.filter((r) =>
             data.datesNeeded.find((d) => d.year === dialog.year)?.rules.some((x) => x.id === r.id),
           )}
@@ -387,10 +419,10 @@ Fix a past holiday?`)
           }}
         />
       )}
+
       {dialog?.kind === 'dates' && (
         <DatesForm
           rule={dialog.rule}
-          offDays={offDays}
           year={dialog.year}
           current={!!dialog.rule.yearInfo?.final && dialog.year === year}
           onClose={() => setDialog(null)}
@@ -408,54 +440,150 @@ Fix a past holiday?`)
   );
 }
 
-/** A collapsed group of rows. */
-function Fold({
-  title,
-  count,
-  children,
+/** Super simple form to add a Yearly Variable Common Holiday (with optional dates for `year`). */
+function QuickVariableRuleForm({
+  year,
+  onClose,
+  onSaved,
 }: {
-  title: string;
-  count: number;
-  children: React.ReactNode;
+  year: number;
+  onClose: () => void;
+  onSaved: (msg: string) => void;
 }) {
-  if (count === 0) return null;
+  const [title, setTitle] = useState('');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!title.trim()) return setError('Please enter a holiday name.');
+    if ((start && !end) || (!start && end)) {
+      return setError('Enter both Start and End dates, or leave both blank to set later.');
+    }
+    if (start && end && end < start) {
+      return setError('End date cannot be before Start date.');
+    }
+
+    const len =
+      start && end
+        ? Math.max(1, Math.min(60, Math.round((msOf(end) - msOf(start)) / 86_400_000) + 1))
+        : 7;
+
+    setSaving(true);
+    const cr = await api<{ ruleId: number }>('/api/admin/holiday-rules', {
+      method: 'POST',
+      body: {
+        title: title.trim(),
+        category: 'HOLIDAY',
+        classesOnly: false,
+        audience: [{ scopeType: 'ALL', scopeId: null }],
+        effectiveFromYear: year,
+        params: { kind: 'MANUAL_YEARLY', defaultLengthDays: len },
+      },
+    });
+    if (!cr.ok) {
+      setSaving(false);
+      return setError(cr.message);
+    }
+
+    if (start && end) {
+      const or = await api(`/api/admin/holiday-rules/${cr.data.ruleId}/overrides`, {
+        method: 'PUT',
+        body: { year, startDate: start, endDate: end, confirmPast: true },
+      });
+      setSaving(false);
+      if (!or.ok) return setError(or.message);
+      return onSaved(`Added "${title.trim()}" with ${year} dates.`);
+    }
+
+    setSaving(false);
+    onSaved(`Added "${title.trim()}" to Yearly Variable Holidays.`);
+  }
+
   return (
-    <details className="rounded-lg border border-zinc-200 dark:border-zinc-800">
-      <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">
-        {title} ({count})
-      </summary>
-      <div className="grid gap-2 p-2">{children}</div>
-    </details>
+    <Sheet title="Add Yearly Variable Holiday" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            'Summer Vacation',
+            'Winter Vacation',
+            'Eid-ul-Fitr Vacation',
+            'Eid-ul-Adha Vacation',
+            'Durga Puja Vacation',
+          ].map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setTitle(preset)}
+              className="rounded border border-zinc-300 bg-zinc-50 px-2 py-0.5 text-xs hover:bg-indigo-50 dark:border-zinc-700 dark:bg-zinc-800"
+            >
+              + {preset}
+            </button>
+          ))}
+        </div>
+
+        <label className="block text-sm font-medium">
+          Holiday Name
+          <input
+            className={field}
+            placeholder="e.g. Summer Vacation, Eid Vacation…"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+          />
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-sm font-medium">
+            {year} Start Date <span className="text-xs font-normal text-zinc-500">(optional)</span>
+            <input
+              type="date"
+              className={field}
+              value={start}
+              onChange={(e) => {
+                setStart(e.target.value);
+                if (!end || end < e.target.value) setEnd(e.target.value);
+              }}
+            />
+          </label>
+          <label className="block text-sm font-medium">
+            {year} End Date <span className="text-xs font-normal text-zinc-500">(optional)</span>
+            <input
+              type="date"
+              className={field}
+              value={end}
+              min={start || undefined}
+              onChange={(e) => setEnd(e.target.value)}
+            />
+          </label>
+        </div>
+
+        {error && (
+          <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            {error}
+          </p>
+        )}
+
+        <FormButtons
+          label={saving ? 'Saving…' : 'Add Variable Holiday'}
+          onClose={onClose}
+          disabled={saving}
+        />
+      </form>
+    </Sheet>
   );
 }
 
-/** "More" menu: a <details> that closes itself after a choice. */
-function More({ children }: { children: React.ReactNode }) {
-  return (
-    <details className="relative">
-      <summary className={`${small} cursor-pointer list-none`}>More</summary>
-      <div
-        className="absolute right-0 z-20 mt-1 grid min-w-44 gap-0.5 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-        onClick={(e) => e.currentTarget.closest('details')?.removeAttribute('open')}
-      >
-        {children}
-      </div>
-    </details>
-  );
-}
-const item =
-  'rounded-md px-3 py-2 text-left text-sm hover:bg-zinc-100 disabled:opacity-60 dark:hover:bg-zinc-800';
-
-/**
- * One yearly holiday for the selected year. At most two visible buttons: the main action (when
- * there is one) and "More"; everything else lives in the menu.
- */
+/** One yearly holiday row with direct, 1-click Edit / Set Dates / Skip / Remove buttons. */
 function RuleRow({
   rule,
   year,
   busy,
   onEdit,
-  onEnd,
+  onRemove,
   onDates,
   onShift,
   onConfirm,
@@ -466,7 +594,7 @@ function RuleRow({
   year: number;
   busy: boolean;
   onEdit: () => void;
-  onEnd: () => void;
+  onRemove: () => void;
   onDates: () => void;
   onShift: (n: number) => void;
   onConfirm: () => void;
@@ -476,120 +604,117 @@ function RuleRow({
   const info = rule.yearInfo;
   const kind = rule.params.kind;
   const isHijri = kind === 'HIJRI';
-  const years = `${rule.effectiveFromYear}${rule.effectiveToYear ? `–${rule.effectiveToYear}` : ' onward'}`;
   const hasOverride = !!info?.updatedBy;
   const final = info && !info.skipped ? info.final : null;
-  const needsDates = kind === 'MANUAL_YEARLY' && info && !info.skipped && !info.final;
   const needsSighting = isHijri && !!final && !info?.confirmed;
 
   return (
     <article
-      className={`rounded-lg border border-zinc-200 p-3 dark:border-zinc-800 ${info ? '' : 'opacity-60'}`}
+      className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800 ${info ? '' : 'opacity-60'}`}
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <h4 className="font-medium">{ruleName(rule)}</h4>
-        <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
-          {KIND_LABEL[kind]}
-        </span>
-        {rule.classesOnly && (
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
-            Classes off · offices open
-          </span>
-        )}
-        <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800 dark:bg-green-950 dark:text-green-200">
-          {audienceText(rule.label)}
-        </span>
-      </div>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        {ruleSummary(rule.params)} · active {years}
-      </p>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="font-semibold">{ruleName(rule)}</h4>
+          {rule.label !== 'ALL' && (
+            <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">
+              {audienceText(rule.label)}
+            </span>
+          )}
+        </div>
 
-      <p className="mt-2 text-sm" aria-live="polite">
-        <b>{year}:</b>{' '}
-        {!info ? (
-          'not active this year'
-        ) : info.skipped ? (
-          'skipped'
-        ) : final ? (
-          <>
-            {needsSighting ? 'expected ' : ''}
-            {dateRange(final.startDate, final.endDate)}
-            {final.tentative && (
-              <span className="ml-2 rounded border border-dashed border-red-500 px-1.5 py-0.5 text-xs text-red-700 dark:text-red-300">
-                Expected
-              </span>
-            )}
-            {isHijri && info.confirmed && (
-              <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-                Confirmed
-              </span>
-            )}
-          </>
-        ) : (
-          <span className="font-medium text-amber-700 dark:text-amber-400">Dates needed</span>
-        )}
-      </p>
-      {hasOverride && info?.updatedAt && (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Set by {info.updatedBy!.name} · {stamp(info.updatedAt)}
-          {info.note ? ` · ${info.note}` : ''}
+        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+          {ruleSummary(rule.params)}
         </p>
-      )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {needsDates && (
-          <button type="button" className={small} disabled={busy} onClick={onDates}>
-            Set dates
+        <p className="mt-1 text-sm" aria-live="polite">
+          <b>{year}:</b>{' '}
+          {!info ? (
+            'not active this year'
+          ) : info.skipped ? (
+            <span className="text-zinc-500">Skipped for {year}</span>
+          ) : final ? (
+            <>
+              {needsSighting ? 'expected ' : ''}
+              {dateRange(final.startDate, final.endDate)}
+              {final.tentative && (
+                <span className="ml-2 rounded border border-dashed border-red-500 px-1.5 py-0.5 text-xs text-red-700 dark:text-red-300">
+                  Expected
+                </span>
+              )}
+              {isHijri && info.confirmed && (
+                <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                  Confirmed
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="font-medium text-amber-700 dark:text-amber-400">
+              Dates not set yet
+            </span>
+          )}
+        </p>
+        {hasOverride && info?.updatedAt && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Updated by {info.updatedBy!.name} · {stamp(info.updatedAt)}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {kind !== 'GREGORIAN_FIXED' && info && !info.skipped && (
+          <button
+            type="button"
+            className={`${small} border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300`}
+            disabled={busy}
+            onClick={onDates}
+          >
+            {final ? 'Change dates' : 'Set dates'}
           </button>
         )}
         {needsSighting && (
-          <button
-            type="button"
-            className={`${small} border-emerald-700 text-emerald-800 dark:text-emerald-300`}
-            disabled={busy}
-            onClick={onConfirm}
-          >
-            Confirm date
-          </button>
-        )}
-        <More>
-          {isHijri && final && (
-            <>
-              <button type="button" className={item} disabled={busy} onClick={() => onShift(1)}>
-                1 day later
-              </button>
-              <button type="button" className={item} disabled={busy} onClick={() => onShift(-1)}>
-                1 day earlier
-              </button>
-            </>
-          )}
-          {info && !info.skipped && kind !== 'GREGORIAN_FIXED' && (
-            <button type="button" className={item} disabled={busy} onClick={onDates}>
-              Set exact dates
-            </button>
-          )}
-          {info && (
+          <>
             <button
               type="button"
-              className={item}
+              className={`${small} border-emerald-700 text-emerald-800 dark:text-emerald-300`}
               disabled={busy}
-              onClick={() => onSkip(!info.skipped)}
+              onClick={onConfirm}
             >
-              {info.skipped ? `Include ${year}` : `Skip ${year}`}
+              Confirm
             </button>
-          )}
-          {hasOverride && (
-            <button type="button" className={item} disabled={busy} onClick={onReset}>
-              Reset {year}
+            <button type="button" className={small} disabled={busy} onClick={() => onShift(-1)}>
+              −1d
             </button>
-          )}
-          <button type="button" className={item} disabled={busy} onClick={onEdit}>
-            Edit rule
+            <button type="button" className={small} disabled={busy} onClick={() => onShift(1)}>
+              +1d
+            </button>
+          </>
+        )}
+        {hasOverride && kind !== 'MANUAL_YEARLY' && (
+          <button type="button" className={small} disabled={busy} onClick={onReset}>
+            Reset
           </button>
-          <button type="button" className={item} disabled={busy} onClick={onEnd}>
-            End rule
+        )}
+        <button type="button" className={small} disabled={busy} onClick={onEdit}>
+          Edit
+        </button>
+        {info && (
+          <button
+            type="button"
+            className={small}
+            disabled={busy}
+            onClick={() => onSkip(!info.skipped)}
+          >
+            {info.skipped ? `Restore ${year}` : `Skip ${year}`}
           </button>
-        </More>
+        )}
+        <button
+          type="button"
+          className={`${small} border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50`}
+          disabled={busy}
+          onClick={onRemove}
+        >
+          Remove
+        </button>
       </div>
     </article>
   );
@@ -608,7 +733,7 @@ function EndForm({
 }) {
   const [fromYear, setFromYear] = useState(defaultYear);
   return (
-    <Sheet title={`End: ${ruleName(rule)}`} onClose={onClose}>
+    <Sheet title={`Remove: ${ruleName(rule)}`} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -617,7 +742,7 @@ function EndForm({
         }}
       >
         <label className="block text-sm font-medium">
-          From which year should it stop?
+          Remove starting from year
           <input
             type="number"
             className={field}
@@ -628,9 +753,9 @@ function EndForm({
           />
         </label>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Years before {fromYear} keep this holiday exactly as it was.
+          Years before {fromYear} keep their history unchanged.
         </p>
-        <FormButtons label={`End from ${fromYear}`} onClose={onClose} danger />
+        <FormButtons label={`Remove from ${fromYear} onward`} onClose={onClose} danger />
       </form>
     </Sheet>
   );
@@ -640,14 +765,11 @@ function DatesForm({
   rule,
   year,
   current,
-  offDays,
   onClose,
   onSave,
 }: {
   rule: RuleItem;
-  offDays: number[];
   year: number;
-  /** the rule currently shows dates for this year (they would be replaced) */
   current: boolean;
   onClose: () => void;
   onSave: (body: Record<string, unknown>) => void;
@@ -681,7 +803,7 @@ function DatesForm({
       >
         <div className="grid grid-cols-2 gap-3">
           <label className="block text-sm font-medium">
-            From
+            Start Date
             <input
               type="date"
               className={field}
@@ -694,7 +816,7 @@ function DatesForm({
             />
           </label>
           <label className="block text-sm font-medium">
-            To
+            End Date
             <input
               type="date"
               className={field}
@@ -717,7 +839,6 @@ function DatesForm({
         {rule.params.kind === 'HIJRI' && (
           <p className="text-xs text-zinc-500">Saving exact dates also confirms them.</p>
         )}
-        <TrimHint start={start} end={end} offDays={offDays} />
         <ImpactPreview change={impactChange} impact={confirm.impact} />
         <FormButtons
           label={confirm.armed ? 'Confirm and save' : 'Save dates'}
@@ -759,19 +880,19 @@ function FormButtons({
   );
 }
 
-// --- Add / edit a rule -----------------------------------------------------------------------
-
 const pt = (p?: HijriPoint): HijriPoint => p ?? { month: 9, day: 1, offsetDays: 0 };
 
 function RuleForm({
   structure,
   rule,
+  defaultKind,
   defaultYear,
   onClose,
   onSave,
 }: {
   structure: ApiStructure;
   rule: RuleItem | null;
+  defaultKind?: RuleKind;
   defaultYear: number;
   onClose: () => void;
   onSave: (body: Record<string, unknown>, editingId?: number) => void;
@@ -779,15 +900,17 @@ function RuleForm({
   const p = rule?.params;
   const [title, setTitle] = useState(rule?.title ?? '');
   const [classesOnly, setClassesOnly] = useState(rule?.classesOnly ?? false);
-  const [kind, setKind] = useState<RuleKind>(p?.kind ?? 'MANUAL_YEARLY');
+  const [kind, setKind] = useState<RuleKind>(p?.kind ?? defaultKind ?? 'GREGORIAN_FIXED');
   const [fromYear, setFromYear] = useState(defaultYear);
   const [selected, setSelected] = useState(() =>
-    rule ? coveredSeriesIds(rule.audience, structure) : new Set<number>(),
+    rule ? coveredSeriesIds(rule.audience, structure) : new Set(structure.series.map((s) => s.id)),
+  );
+  const [showAdvancedAudience, setShowAdvancedAudience] = useState(
+    () => !!rule && rule.label !== 'ALL',
   );
 
-  // Params, one small state per kind.
   const [fixed, setFixed] = useState(
-    p?.kind === 'GREGORIAN_FIXED' ? p : { month: 1, day: 1, lengthDays: 1 },
+    p?.kind === 'GREGORIAN_FIXED' ? p : { month: 2, day: 21, lengthDays: 1 },
   );
   const [hMode, setHMode] = useState<'RANGE' | 'LAST_WEEKDAY'>(
     p && 'type' in p ? 'LAST_WEEKDAY' : 'RANGE',
@@ -808,9 +931,15 @@ function RuleForm({
       ? { month: p.hijriMonth, weekday: p.weekday }
       : { month: 9, weekday: 5 },
   );
-  const [manualLen, setManualLen] = useState(p?.kind === 'MANUAL_YEARLY' ? p.defaultLengthDays : 1);
+  const [manualLen, setManualLen] = useState(p?.kind === 'MANUAL_YEARLY' ? p.defaultLengthDays : 7);
 
-  const audience = useMemo(() => audienceFromSeries(selected, structure), [selected, structure]);
+  const audience = useMemo(
+    () =>
+      showAdvancedAudience
+        ? audienceFromSeries(selected, structure)
+        : [{ scopeType: 'ALL' as const, scopeId: null }],
+    [showAdvancedAudience, selected, structure],
+  );
   const [error, setError] = useState<string | null>(null);
 
   function params(): RuleParams {
@@ -874,7 +1003,16 @@ function RuleForm({
   );
 
   return (
-    <Sheet title={rule ? `Edit: ${ruleName(rule)}` : 'New yearly holiday'} onClose={onClose}>
+    <Sheet
+      title={
+        rule
+          ? `Edit: ${ruleName(rule)}`
+          : kind === 'GREGORIAN_FIXED'
+            ? 'Add Yearly Fixed Holiday'
+            : 'Add Yearly Holiday'
+      }
+      onClose={onClose}
+    >
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -883,23 +1021,19 @@ function RuleForm({
         }}
       >
         <label className="block text-sm font-medium">
-          Title
+          Holiday Name
           <input
             className={field}
             value={title}
             maxLength={100}
+            placeholder={
+              kind === 'GREGORIAN_FIXED'
+                ? 'e.g. Shaheed Day, Independence Day…'
+                : 'e.g. Eid-ul-Fitr Vacation…'
+            }
             required
             onChange={(e) => setTitle(e.target.value)}
           />
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-indigo-600"
-            checked={classesOnly}
-            onChange={(e) => setClassesOnly(e.target.checked)}
-          />
-          Classes off only <span className="text-zinc-500">(offices stay open)</span>
         </label>
 
         <label className="block text-sm font-medium">
@@ -909,9 +1043,11 @@ function RuleForm({
             value={kind}
             onChange={(e) => setKind(e.target.value as RuleKind)}
           >
-            <option value="GREGORIAN_FIXED">Fixed date every year (e.g. 21 Feb)</option>
-            <option value="HIJRI">Islamic date (moves ~11 days earlier each year)</option>
-            <option value="MANUAL_YEARLY">Date entered by an admin each year</option>
+            <option value="GREGORIAN_FIXED">a. Yearly Fixed (same date every year, e.g. 21 Feb)</option>
+            <option value="MANUAL_YEARLY">
+              b. Yearly Variable (admin sets start &amp; end dates each year)
+            </option>
+            <option value="HIJRI">b. Yearly Variable — Moon-based (Hijri calendar)</option>
           </select>
         </label>
 
@@ -919,14 +1055,17 @@ function RuleForm({
           <div className="grid grid-cols-3 gap-2">
             <label className="block text-xs font-medium">
               Month
-              <input
-                type="number"
-                min={1}
-                max={12}
+              <select
                 className={field}
                 value={fixed.month}
                 onChange={(e) => setFixed({ ...fixed, month: num(e.target.value) })}
-              />
+              >
+                {MONTHS_SHORT.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="block text-xs font-medium">
               Day
@@ -940,7 +1079,7 @@ function RuleForm({
               />
             </label>
             <label className="block text-xs font-medium">
-              Length (days)
+              Duration (days)
               <input
                 type="number"
                 min={1}
@@ -1032,48 +1171,66 @@ function RuleForm({
                 </label>
               </div>
             )}
-            <p className="text-xs text-zinc-500">
-              “± days” moves the date after the Bangladesh offset, e.g. Eid-ul-Fitr vacation starts
-              7 days before 1 Shawwal: day 1, month Shawwal, ± −7.
-            </p>
           </div>
         )}
 
-        <AudiencePicker structure={structure} selected={selected} onChange={setSelected} />
-
-        <label className="block text-sm font-medium">
-          {rule ? 'From which year? (earlier years stay as they were)' : 'First year'}
+        <label className="flex items-center gap-2 text-sm">
           <input
-            type="number"
-            min={2000}
-            max={2100}
-            className={field}
-            value={fromYear}
-            onChange={(e) => setFromYear(num(e.target.value))}
+            type="checkbox"
+            className="h-4 w-4 accent-indigo-600"
+            checked={classesOnly}
+            onChange={(e) => setClassesOnly(e.target.checked)}
           />
+          Classes off only <span className="text-zinc-500">(offices stay open)</span>
         </label>
+
+        {showAdvancedAudience ? (
+          <AudiencePicker structure={structure} selected={selected} onChange={setSelected} />
+        ) : (
+          <div className="flex items-center justify-between rounded-md bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
+            <span>Applies to: <strong>All Departments &amp; Series (Common Holiday)</strong></span>
+            <button
+              type="button"
+              onClick={() => setShowAdvancedAudience(true)}
+              className="text-indigo-700 underline dark:text-indigo-300"
+            >
+              Customize
+            </button>
+          </div>
+        )}
+
+        {rule && (
+          <label className="block text-sm font-medium">
+            Apply changes starting from year
+            <input
+              type="number"
+              min={2000}
+              max={2100}
+              className={field}
+              value={fromYear}
+              onChange={(e) => setFromYear(num(e.target.value))}
+            />
+          </label>
+        )}
 
         {error && (
           <p role="alert" className="text-sm text-red-700 dark:text-red-400">
             {error}
           </p>
         )}
-        <FormButtons label={rule ? `Save from ${fromYear}` : 'Add'} onClose={onClose} />
+        <FormButtons label={rule ? `Save from ${fromYear}` : 'Save Holiday'} onClose={onClose} />
       </form>
     </Sheet>
   );
 }
 
-/** One form for every yearly holiday that still needs dates: a from/to pair per rule. */
 function YearDatesForm({
   year,
-  offDays,
   rules,
   onClose,
   onSaved,
 }: {
   year: number;
-  offDays: number[];
   rules: RuleItem[];
   onClose: () => void;
   onSaved: () => void;
@@ -1101,10 +1258,9 @@ function YearDatesForm({
   async function save() {
     setSaving(true);
     let failed = 0;
-    const trims: string[] = [];
     for (const r of filled) {
       const x = get(r.id);
-      const res = await api<{ trimmed?: { startDate: string; endDate: string } }>(
+      const res = await api(
         `/api/admin/holiday-rules/${r.id}/overrides`,
         {
           method: 'PUT',
@@ -1114,18 +1270,17 @@ function YearDatesForm({
       if (!res.ok) {
         failed++;
         toast(`${ruleName(r)}: ${res.message}`, 'error');
-      } else if (res.data?.trimmed)
-        trims.push(`${ruleName(r)}: ${trimNote(res.data.trimmed, offDays)}`);
+      }
     }
     setSaving(false);
     const saved = filled.length - failed;
     if (saved > 0)
-      toast(`Saved ${saved} ${saved === 1 ? 'holiday' : 'holidays'}. ${trims.join(' ')}`);
+      toast(`Saved ${saved} ${saved === 1 ? 'holiday' : 'holidays'}.`);
     if (failed === 0) onSaved();
   }
 
   return (
-    <Sheet title={`Add ${year} holiday dates`} onClose={onClose}>
+    <Sheet title={`Set ${year} holiday dates`} onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -1144,7 +1299,7 @@ function YearDatesForm({
               <legend className="text-sm font-medium">{ruleName(r)}</legend>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs">
-                  From
+                  Start Date
                   <input
                     type="date"
                     className={field}
@@ -1161,7 +1316,7 @@ function YearDatesForm({
                   />
                 </label>
                 <label className="block text-xs">
-                  To
+                  End Date
                   <input
                     type="date"
                     className={field}
@@ -1171,7 +1326,6 @@ function YearDatesForm({
                   />
                 </label>
               </div>
-              <TrimHint start={x.start} end={x.end} offDays={offDays} />
             </fieldset>
           );
         })}

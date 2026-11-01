@@ -203,16 +203,19 @@ describe('skip rules', () => {
     expect(skipped(j)).toEqual(['2026-10-10']);
   });
 
-  test('full off week in MID_BREAK and in SEMESTER_BREAK: no skip', () => {
-    // Start Sat 3 Oct: classes 3 Oct-14 Nov, MID_BREAK 21 Nov, ..., SEMESTER_BREAK 13 Feb 2027.
+  test('full off week in MID_BREAK and in SEMESTER_BREAK: shifts by one week', () => {
+    // Start Sat 3 Oct: classes 3 Oct-14 Nov, MID_BREAK shifted to 28 Nov by 21 Nov holiday.
+    // Semester break shifts to 20 Feb 2027, and another holiday on 20 Feb shifts it to 27 Feb 2027.
     const j = run(
       [start('2026-10-03')],
-      offOf(['2026-11-21', '2026-11-25'], ['2027-02-13', '2027-02-17']),
+      offOf(['2026-11-21', '2026-11-25'], ['2027-02-20', '2027-02-24']),
     );
-    expect(skipped(j)).toEqual([]);
-    expect(at(j, '2026-11-21')).toMatchObject({ phase: 'MID_BREAK', status: 'COUNTED' });
-    expect(at(j, '2027-02-13')).toMatchObject({ phase: 'SEMESTER_BREAK', status: 'COUNTED' });
-    expect(j.semesters[1]!.classStart).toBe('2027-02-20');
+    expect(skipped(j)).toEqual(['2026-11-21', '2027-02-20']);
+    expect(at(j, '2026-11-21')).toMatchObject({ phase: 'MID_BREAK', status: 'SKIPPED' });
+    expect(at(j, '2026-11-28')).toMatchObject({ phase: 'MID_BREAK', status: 'COUNTED' });
+    expect(at(j, '2027-02-20')).toMatchObject({ phase: 'SEMESTER_BREAK', status: 'SKIPPED' });
+    expect(at(j, '2027-02-27')).toMatchObject({ phase: 'SEMESTER_BREAK', status: 'COUNTED' });
+    expect(j.semesters[1]!.classStart).toBe('2027-03-06');
   });
 
   test('suspended week for EEE-23 only: EEE-23 shifts, CSE-23 does not', () => {

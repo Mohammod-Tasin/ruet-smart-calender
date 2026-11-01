@@ -113,9 +113,12 @@ function offDayRange(positions: PositionRecord[], today: string) {
 
 async function loadOffItems(x: Executor, range: { from: string; to: string }): Promise<OffItem[]> {
   const days = await getOffDays(range, {}, x);
-  return days.map((d) => ({
+  return days
+    .filter((d) => d.category !== 'MID_BREAK' && d.category !== 'SEMESTER_BREAK')
+    .map((d) => ({
     id: d.id,
     title: d.title,
+    category: d.category,
     startDate: d.startDate,
     endDate: d.endDate,
     audience: d.audience,
@@ -124,14 +127,14 @@ async function loadOffItems(x: Executor, range: { from: string; to: string }): P
 
 /** Per series: date -> holiday titles that apply to that series. */
 function lookups(items: OffItem[], structure: Structure, seriesIds: number[]) {
-  const byDate = new Map(seriesIds.map((id) => [id, new Map<string, string[]>()]));
+  const byDate = new Map(seriesIds.map((id) => [id, new Map<string, { title: string; category?: string }[]>()]));
   for (const h of items) {
     const covered = coveredSeriesIds(h.audience, structure);
     for (const id of seriesIds) {
       if (!covered.has(id)) continue;
       const days = byDate.get(id)!;
       for (let d = h.startDate; d <= h.endDate; d = addDays(d, 1)) {
-        days.set(d, [...(days.get(d) ?? []), h.title]);
+        days.set(d, [...(days.get(d) ?? []), { title: h.title, category: h.category }]);
       }
     }
   }
@@ -162,7 +165,8 @@ function journeysFor(
         structure: settings,
         structureFor: (n) => own.get(n),
         isOffDay: (x) => d.has(x),
-        titlesOn: (x) => d.get(x) ?? [],
+        titlesOn: (x) => (d.get(x) ?? []).map((i) => i.title),
+        reasonsOn: (x) => d.get(x) ?? [],
         weeklyOff,
       });
       return [seriesId, journey] as const;
@@ -242,6 +246,196 @@ export async function seriesJourney(id: number, date: string = todayInDhaka()) {
       })),
     defaultFields: fieldsFromStructure(settings),
   });
+}
+
+export interface AcademicBreakItem {
+  id: string;
+  title: string;
+  category: 'MID_BREAK' | 'SEMESTER_BREAK' | 'UNOFFICIAL_BREAK' | 'EXAM' | 'CLASS';
+  startDate: string;
+  endDate: string;
+  seriesId: number;
+  departmentId: number;
+  series: string;
+  deptCode: string;
+  intakeYear: number;
+  semesterNo: number;
+  weekNo?: number;
+  tentative: boolean;
+}
+
+/**
+ * Computes all academic journey breaks (Mid-term break, Semester break, Unofficial break)
+ * touching the date range [from, to] across all active series. Contiguous weeks of the same
+ * break for a series are merged into a single date range.
+ */
+export async function academicBreaksInRange(
+  from: string,
+  to: string,
+): Promise<AcademicBreakItem[]> {
+  const { structure, journeys } = await loadAll(getDb());
+  const rawBreaks: AcademicBreakItem[] = [];
+  const deptMap = new Map(structure.departments.map((d) => [d.id, d.code]));
+
+  for (const s of structure.series) {
+    if (!s.isActive) continue;
+    const j = journeys.get(s.id);
+    if (!j) continue;
+    const deptCode = deptMap.get(s.departmentId) ?? '';
+    const series = seriesLabel(structure, s.id);
+
+    for (const w of j.weeks) {
+      if (w.status === 'COUNTED') {
+        if (w.phase === 'MID_BREAK') {
+          // Mid break strip: previous week Thursday to break week Friday
+          const start = addDays(w.weekStart, -2);
+          const end = addDays(w.weekStart, 6);
+          if (end >= from && start <= to) {
+            rawBreaks.push({
+              id: `mid:${s.id}:${w.semesterNo}:${start}`,
+              title: 'Mid-term break',
+              category: 'MID_BREAK',
+              startDate: start,
+              endDate: end,
+              seriesId: s.id,
+              departmentId: s.departmentId,
+              series,
+              deptCode,
+              intakeYear: s.intakeYear,
+              semesterNo: w.semesterNo,
+              tentative: !w.confirmed,
+            });
+          }
+        } else if (w.phase === 'SEMESTER_BREAK') {
+          // Semester break strip: from the day after E5 to Friday of that week
+          const lastExamWeek = [...j.weeks]
+            .reverse()
+            .find(
+              (ew) =>
+                ew.semesterNo === w.semesterNo &&
+                ew.phase === 'EXAM' &&
+                ew.status === 'COUNTED',
+            );
+          const e5Date = lastExamWeek
+            ? addDays(lastExamWeek.weekStart, Math.max(0, 5 - lastExamWeek.weekNo))
+            : addDays(w.weekStart, -1);
+          const start = addDays(e5Date, 1);
+          const examWeekFriday = addDays(weekStartOf(e5Date), 6);
+          const end = start <= examWeekFriday ? examWeekFriday : addDays(weekStartOf(start), 6);
+          if (end >= from && start <= to) {
+            rawBreaks.push({
+              id: `sem:${s.id}:${w.semesterNo}:${start}`,
+              title: 'Semester break',
+              category: 'SEMESTER_BREAK',
+              startDate: start,
+              endDate: end,
+              seriesId: s.id,
+              departmentId: s.departmentId,
+              series,
+              deptCode,
+              intakeYear: s.intakeYear,
+              semesterNo: w.semesterNo,
+              tentative: !w.confirmed,
+            });
+          }
+        } else if (w.phase === 'EXAM') {
+          // Exam date: E1 Wed (+4), E2 Tue (+3), E3 Mon (+2), E4 Sun (+1), E5 Sat (+0)
+          const examDate = addDays(w.weekStart, Math.max(0, 5 - w.weekNo));
+          if (examDate >= from && examDate <= to) {
+            rawBreaks.push({
+              id: `exam:${s.id}:${w.semesterNo}:${w.weekNo}:${examDate}`,
+              title: `Semester Final (E${w.weekNo})`,
+              category: 'EXAM',
+              startDate: examDate,
+              endDate: examDate,
+              seriesId: s.id,
+              departmentId: s.departmentId,
+              series,
+              deptCode,
+              intakeYear: s.intakeYear,
+              semesterNo: w.semesterNo,
+              weekNo: w.weekNo,
+              tentative: !w.confirmed,
+            });
+          }
+        } else if (w.phase === 'CLASS') {
+          // Class week: Saturday to Wednesday
+          const start = w.weekStart;
+          const end = addDays(w.weekStart, 4);
+          if (end >= from && start <= to) {
+            rawBreaks.push({
+              id: `class:${s.id}:${w.semesterNo}:${w.weekNo}:${start}`,
+              title: `Class week ${w.weekNo}`,
+              category: 'CLASS',
+              startDate: start,
+              endDate: end,
+              seriesId: s.id,
+              departmentId: s.departmentId,
+              series,
+              deptCode,
+              intakeYear: s.intakeYear,
+              semesterNo: w.semesterNo,
+              weekNo: w.weekNo,
+              tentative: !w.confirmed,
+            });
+          }
+        }
+      } else if (w.status === 'SKIPPED') {
+        const isUnofficial = w.skipReasons.some(
+          (r) =>
+            r.category === 'UNOFFICIAL_BREAK' ||
+            r.category === 'SUSPENDED_WEEK' ||
+            /unofficial|auto|suspend/i.test(r.title),
+        );
+        if (isUnofficial) {
+          // Unofficial break strip: previous week Thursday to break week Friday
+          const start = addDays(w.weekStart, -2);
+          const end = addDays(w.weekStart, 6);
+          if (end >= from && start <= to) {
+            const reasonTitle =
+              w.skipReasons.map((r) => r.title).join(', ') || 'Unofficial break';
+            rawBreaks.push({
+              id: `unoff:${s.id}:${w.semesterNo}:${start}`,
+              title: reasonTitle,
+              category: 'UNOFFICIAL_BREAK',
+              startDate: start,
+              endDate: end,
+              seriesId: s.id,
+              departmentId: s.departmentId,
+              series,
+              deptCode,
+              intakeYear: s.intakeYear,
+              semesterNo: w.semesterNo,
+              tentative: false,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Combine contiguous / overlapping weeks for the same series and break type
+  rawBreaks.sort((a, b) => a.seriesId - b.seriesId || a.startDate.localeCompare(b.startDate));
+  const merged: AcademicBreakItem[] = [];
+  for (const b of rawBreaks) {
+    const prev = merged[merged.length - 1];
+    if (
+      prev &&
+      prev.seriesId === b.seriesId &&
+      prev.category === b.category &&
+      prev.semesterNo === b.semesterNo &&
+      (b.category === 'MID_BREAK' || b.category === 'UNOFFICIAL_BREAK' || b.category === 'SEMESTER_BREAK') &&
+      b.startDate <= addDays(prev.endDate, 2)
+    ) {
+      if (b.endDate > prev.endDate) {
+        prev.endDate = b.endDate;
+      }
+    } else {
+      merged.push({ ...b });
+    }
+  }
+
+  return merged;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -330,7 +524,20 @@ export async function bulkPositions(
     const start = input.kind === 'SEMESTER_START';
     const phase = start ? 'CLASS' : input.phase!;
     const weekNo = start ? 1 : input.weekNo!;
-    const problem = positionProblem(await loadStructureSetting(tx), phase, weekNo);
+    const setting = await loadStructureSetting(tx);
+    const schedules = await loadSchedules(tx);
+    const problem = seriesIds.reduce<string | null>((err, id) => {
+      if (err) return err;
+      const own = schedules.find(
+        (r) => r.seriesId === id && r.semesterNo === input.semesterNo,
+      )?.structure;
+      const base = own ?? setting;
+      const eff =
+        phase === 'EXAM' && weekNo === 5
+          ? base.map((b) => (b.phase === 'EXAM' && b.weeks < 5 ? { ...b, weeks: 5 } : b))
+          : base;
+      return positionProblem(eff, phase, weekNo);
+    }, null);
     if (problem) return fail('UNPROCESSABLE', problem);
 
     const asOfDate = weekStartOf(input.asOfDate);
