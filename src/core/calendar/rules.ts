@@ -9,7 +9,15 @@ import {
 import type { AudienceEntry } from './types';
 
 /** Add a category here (and its colour in src/lib/categories.ts). */
-export const CATEGORIES = ['HOLIDAY', 'SUSPENDED_WEEK'] as const;
+export const CATEGORIES = [
+  'HOLIDAY',
+  'SUSPENDED_WEEK',
+  'UNOFFICIAL_BREAK',
+  'MID_BREAK',
+  'SEMESTER_BREAK',
+  'EXAM',
+  'CLASS',
+] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 /** A suspended week is exactly Saturday to Wednesday of one week (CLAUDE.md §15). */

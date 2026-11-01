@@ -4,15 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { todayInDhaka } from '@/core/calendar/grid';
 import { planOccurrenceEdit, type EditScope } from '@/core/calendar/past';
 import type { RuleParams } from '@/core/calendar/rules';
-import { trimOffDays } from '@/core/calendar/trim';
 import { isRealDate } from '@/core/validation/holidays-query';
 import { api, type AuditEntry, type PublicHoliday } from '@/lib/api';
-import { dateRange, stamp, weekendRange } from '@/lib/format';
+import { dateRange, stamp } from '@/lib/format';
 import { ImpactPreview } from './ImpactPreview';
 import { PastConfirm } from './PastConfirm';
 import { Sheet } from './Sheet';
 import { useToast } from './Toast';
-import { TrimHint } from './TrimHint';
 import { field, primary, small } from './ui';
 
 const UNDO_MS = 10_000;
@@ -21,21 +19,19 @@ const weekday = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
 
 export const yearlyRuleHref = (ruleId: number, year: number, open?: 'edit' | 'end') =>
-  `/admin?tab=calendar&view=yearly&year=${year}&rule=${ruleId}${open ? `&do=${open}` : ''}`;
+  `/admin?tab=settings&year=${year}&rule=${ruleId}${open ? `&do=${open}` : ''}`;
 
 /**
- * Tap a bar of a yearly holiday: change its date (this year, or from a year on), remove it for
- * this year, or reach the rarer actions. The time rules are mirrored here from core/calendar/past
- * to disable choices early; the server enforces them again (it never trusts this).
+ * Tap a bar of a yearly holiday: change its date, remove it for this year, or remove permanently
+ * in 1–2 clicks.
  */
 export function OccurrenceSheet({
   holiday: h,
-  offDays,
   onClose,
   onChanged,
 }: {
   holiday: PublicHoliday;
-  offDays: number[];
+  offDays?: number[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -43,7 +39,7 @@ export function OccurrenceSheet({
   const ruleId = h.ruleId!;
   const year = h.year!;
   const today = useMemo(() => todayInDhaka(), []);
-  const [step, setStep] = useState<'main' | 'change' | 'skip'>('main');
+  const [step, setStep] = useState<'main' | 'change' | 'skip' | 'end'>('main');
   const [params, setParams] = useState<RuleParams | null>(null);
   const [start, setStart] = useState(h.startDate);
   const [end, setEnd] = useState(h.endDate);
@@ -67,8 +63,8 @@ export function OccurrenceSheet({
 
   const datesOk = isRealDate(start) && isRealDate(end) && end >= start;
   const proposed = useMemo(
-    () => (datesOk ? (trimOffDays({ startDate: start, endDate: end }, offDays) ?? null) : null),
-    [datesOk, start, end, offDays],
+    () => (datesOk ? { startDate: start, endDate: end } : null),
+    [datesOk, start, end],
   );
   const original = { startDate: h.startDate, endDate: h.endDate };
   const plans = useMemo(() => {
@@ -125,7 +121,7 @@ export function OccurrenceSheet({
     if (!scope || !proposed) return;
     setError(null);
     setSaving(true);
-    const r = await api<{ undoId: number; note: string | null; trimmed?: unknown }>(
+    const r = await api<{ undoId: number; note: string | null }>(
       `/api/admin/holiday-rules/${ruleId}/occurrence`,
       { method: 'POST', body: { year, startDate: start, endDate: end, scope, confirmPast } },
     );
@@ -153,7 +149,7 @@ export function OccurrenceSheet({
     });
     setSaving(false);
     if (r.ok) {
-      toast(`No ${h.title} in ${year}.`, 'success', {
+      toast(`Removed ${h.title} for ${year}.`, 'success', {
         label: 'Undo',
         ms: UNDO_MS,
         onClick: () =>
@@ -172,11 +168,29 @@ export function OccurrenceSheet({
     setError(r.message);
   }
 
+  async function removePermanently() {
+    setError(null);
+    setSaving(true);
+    const r = await api(`/api/admin/holiday-rules/${ruleId}`, {
+      method: 'DELETE',
+      body: { fromYear: year },
+    });
+    setSaving(false);
+    if (r.ok) {
+      toast(`"${h.title}" removed from ${year} onward.`);
+      onChanged();
+      return onClose();
+    }
+    setError(r.message);
+  }
+
   if (history) {
     return <RuleHistory ruleId={ruleId} title={h.title} onClose={() => setHistory(false)} />;
   }
 
-  const weekend = weekendRange(original, offDays);
+  const typeBadge =
+    kind === 'GREGORIAN_FIXED' ? 'Yearly Fixed Holiday' : 'Yearly Variable Holiday';
+
   return (
     <Sheet title={h.title} onClose={onClose}>
       <div className="space-y-4">
@@ -184,14 +198,9 @@ export function OccurrenceSheet({
           <b>
             {weekday(h.startDate)} {dateRange(h.startDate, h.endDate)}
           </b>{' '}
-          · Repeats every year
+          · {typeBadge}
           {h.tentative && ' · Expected date'}
         </p>
-        {weekend && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            With the weekend, students are off {weekend}.
-          </p>
-        )}
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Last changed by {h.updatedBy.name} · {stamp(h.updatedAt)}
         </p>
@@ -203,30 +212,31 @@ export function OccurrenceSheet({
                 Change date
               </button>
               <button type="button" className={`${small} py-2`} onClick={() => setStep('skip')}>
-                No holiday this year
+                Remove for {year} only
+              </button>
+              <button
+                type="button"
+                className={`${small} border-red-300 py-2 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/50`}
+                onClick={() => setStep('end')}
+              >
+                Remove permanently
               </button>
             </div>
-            <details className="text-sm">
-              <summary className="cursor-pointer font-medium">More</summary>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Link href={yearlyRuleHref(ruleId, year, 'edit')} className={small}>
-                  Edit name or who is off
-                </Link>
-                <Link href={yearlyRuleHref(ruleId, year, 'end')} className={small}>
-                  Stop repeating
-                </Link>
-                <button type="button" className={small} onClick={() => setHistory(true)}>
-                  History
-                </button>
-              </div>
-            </details>
+            <div className="flex flex-wrap gap-2 pt-1 text-sm">
+              <Link href={yearlyRuleHref(ruleId, year, 'edit')} className={small}>
+                Edit name
+              </Link>
+              <button type="button" className={small} onClick={() => setHistory(true)}>
+                History
+              </button>
+            </div>
           </>
         )}
 
         {step === 'skip' && (
           <div className="space-y-3">
             <p className="text-sm">
-              Remove <b>{h.title}</b> from {year}? It will come back next year.
+              Remove <b>{h.title}</b> from {year} only? It will still repeat next year.
             </p>
             <ImpactPreview change={{ removeIds: [h.id] }} />
             {pastMsg ? (
@@ -244,13 +254,40 @@ export function OccurrenceSheet({
                   className={primary}
                   onClick={() => void skip(false)}
                 >
-                  {saving ? 'Saving…' : `Remove for ${year}`}
+                  {saving ? 'Removing…' : `Yes, remove for ${year}`}
                 </button>
                 <button type="button" className={`${small} py-2`} onClick={() => setStep('main')}>
                   Cancel
                 </button>
               </div>
             )}
+            {error && (
+              <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+
+        {step === 'end' && (
+          <div className="space-y-3">
+            <p className="text-sm">
+              Permanently remove <b>{h.title}</b> from {year} and all future years?
+            </p>
+            <ImpactPreview change={{ removeIds: [h.id] }} />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                className="rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-60"
+                onClick={() => void removePermanently()}
+              >
+                {saving ? 'Removing…' : `Yes, remove permanently`}
+              </button>
+              <button type="button" className={`${small} py-2`} onClick={() => setStep('main')}>
+                Cancel
+              </button>
+            </div>
             {error && (
               <p role="alert" className="text-sm text-red-700 dark:text-red-400">
                 {error}
@@ -290,7 +327,6 @@ export function OccurrenceSheet({
                 />
               </label>
             </div>
-            <TrimHint start={start} end={end} offDays={offDays} />
 
             <fieldset className="space-y-1.5">
               <legend className="text-sm font-medium">Apply this change to</legend>

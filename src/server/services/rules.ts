@@ -41,8 +41,6 @@ import {
   pastGate,
   type Person,
   type Result,
-  ALL_WEEKLY_OFF,
-  trimRange,
 } from './shared';
 
 /** Bangladesh usually sights the moon a day after Saudi Arabia. */
@@ -432,15 +430,6 @@ export async function setOverride(
   Result<{ ruleId: number; trimmed?: { startDate: string; endDate: string }; note?: string }>
 > {
   let input = raw;
-  let trimmed: { startDate: string; endDate: string } | undefined;
-  if (raw.startDate && raw.endDate) {
-    const t = trimRange({ startDate: raw.startDate, endDate: raw.endDate });
-    if (!t) return fail('UNPROCESSABLE', ALL_WEEKLY_OFF);
-    if (t.trimmed) {
-      trimmed = { startDate: t.startDate, endDate: t.endDate };
-      input = { ...raw, ...trimmed };
-    }
-  }
   return getDb().transaction(async (tx) => {
     await lockWrites(tx);
     const rule = await oneRule(tx, ruleId);
@@ -502,7 +491,7 @@ export async function setOverride(
       if (blocked) return blocked;
     }
 
-    const r = await writeOverride(tx, adminId, ruleId, input, prev, trimmed);
+    const r = await writeOverride(tx, adminId, ruleId, input, prev);
     return r.ok && clipNote ? ok({ ...r.value, note: clipNote }) : r;
   });
 }
@@ -523,7 +512,6 @@ async function writeOverride(
   ruleId: number,
   input: OverrideInput,
   prev: typeof holidayRuleOverrides.$inferSelect | undefined,
-  trimmed?: { startDate: string; endDate: string },
 ): Promise<Result<{ ruleId: number; trimmed?: { startDate: string; endDate: string } }>> {
   const next = {
     startDate: input.startDate !== undefined ? input.startDate : (prev?.startDate ?? null),
@@ -549,7 +537,7 @@ async function writeOverride(
     pick(prev),
     pick(next),
   );
-  return ok({ ruleId, trimmed });
+  return ok({ ruleId });
 }
 
 /** Remove one year's override (back to the computed dates). */
@@ -628,9 +616,7 @@ export async function changeOccurrence(
     note: string | null;
   }>
 > {
-  const t = trimRange({ startDate: raw.startDate, endDate: raw.endDate });
-  if (!t) return fail('UNPROCESSABLE', ALL_WEEKLY_OFF);
-  const proposed = { startDate: t.startDate, endDate: t.endDate };
+  const proposed = { startDate: raw.startDate, endDate: raw.endDate };
 
   return getDb().transaction(async (tx) => {
     await lockWrites(tx);
@@ -716,7 +702,6 @@ export async function changeOccurrence(
       ruleId: resultId,
       undoId: mark!.id,
       dates: plan.dates,
-      trimmed: t.trimmed ? proposed : undefined,
       note: plan.note,
     });
   });

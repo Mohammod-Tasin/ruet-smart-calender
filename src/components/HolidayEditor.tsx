@@ -2,22 +2,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { audienceFromSeries } from '@/core/calendar/audience';
 import { coveredSeriesIds } from '@/core/calendar/compress';
+import type { Category } from '@/core/calendar/rules';
 import { isRealDate } from '@/core/validation/holidays-query';
 import { api, type ApiStructure, type FullHoliday } from '@/lib/api';
-import { stamp, trimNote } from '@/lib/format';
+import { stamp } from '@/lib/format';
 import { AudienceChips } from './AudienceChips';
 import { ImpactPreview } from './ImpactPreview';
 import { OverlapLine, useOverlap } from './OverlapLine';
 import { Sheet } from './Sheet';
 import { PastNote } from './PastConfirm';
-import { TrimHint } from './TrimHint';
 
 export type EditorTarget =
-  { kind: 'new'; start: string; end: string } | { kind: 'edit'; id: number };
+  | { kind: 'new'; start: string; end: string; initialCategory?: Category; initialTitle?: string }
+  | { kind: 'edit'; id: number };
 
 interface Initial {
   title: string;
   note: string;
+  category?: Category;
   classesOnly: boolean;
   start: string;
   end: string;
@@ -33,7 +35,7 @@ const sameSet = (a: Set<number>, b: Set<number>) =>
 
 interface FormProps {
   structure: ApiStructure;
-  offDays: number[];
+  offDays?: number[];
   onClose: () => void;
   onDone: (message: string) => void;
   onEditExisting: (id: number) => void;
@@ -57,16 +59,21 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
 
   let body: React.ReactNode;
   if (target.kind === 'new') {
+    const isDeptBreak =
+      target.initialCategory === 'UNOFFICIAL_BREAK' ||
+      target.initialCategory === 'MID_BREAK' ||
+      target.initialCategory === 'SEMESTER_BREAK';
     body = (
       <HolidayForm
         {...rest}
         initial={{
-          title: '',
+          title: target.initialTitle ?? '',
           note: '',
-          classesOnly: false,
+          category: target.initialCategory ?? 'HOLIDAY',
+          classesOnly: isDeptBreak,
           start: target.start,
           end: target.end,
-          selected: new Set(),
+          selected: isDeptBreak ? new Set() : new Set(rest.structure.series.map((s) => s.id)),
         }}
       />
     );
@@ -78,6 +85,7 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
         initial={{
           title: h.title,
           note: h.note ?? '',
+          category: h.category,
           classesOnly: h.classesOnly,
           start: h.startDate,
           end: h.endDate,
@@ -98,7 +106,10 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
   }
 
   return (
-    <Sheet title={target.kind === 'new' ? 'Add holiday' : 'Edit holiday'} onClose={rest.onClose}>
+    <Sheet
+      title={target.kind === 'new' ? 'Add holiday / break' : 'Edit holiday / break'}
+      onClose={rest.onClose}
+    >
       {body}
     </Sheet>
   );
@@ -110,17 +121,16 @@ function HolidayForm({
   onClose,
   onDone,
   onEditExisting,
-  offDays,
 }: FormProps & { initial: Initial }) {
   const [title, setTitle] = useState(initial.title);
   const [note, setNote] = useState(initial.note);
+  const [category, setCategory] = useState<Category>(initial.category ?? 'HOLIDAY');
   const [classesOnly, setClassesOnly] = useState(initial.classesOnly);
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
   const [selected, setSelected] = useState(initial.selected);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Set when the server asked for the "Fix a past holiday" confirm; the next save sends it.
   const [pastMsg, setPastMsg] = useState<string | null>(null);
 
   const audience = useMemo(() => audienceFromSeries(selected, structure), [selected, structure]);
@@ -131,16 +141,15 @@ function HolidayForm({
     checking,
     setConflicts,
   } = useOverlap(checkable, start, end, audience, initial.excludeId);
-  // What this save would do to the semesters (an edit replaces the old version of itself).
   const impactChange = useMemo(
     () =>
-      checkable
+      checkable && category !== 'MID_BREAK' && category !== 'SEMESTER_BREAK'
         ? {
             removeIds: initial.excludeId ? [initial.excludeId] : undefined,
             add: [{ startDate: start, endDate: end, audience }],
           }
         : null,
-    [checkable, initial.excludeId, start, end, audience],
+    [checkable, category, initial.excludeId, start, end, audience],
   );
 
   async function save() {
@@ -159,6 +168,7 @@ function HolidayForm({
         body: {
           title,
           note,
+          category,
           classesOnly,
           startDate: start,
           endDate: end,
@@ -168,10 +178,10 @@ function HolidayForm({
         },
       });
     } else {
-      // Send only what changed, so an unchanged audience/date never re-triggers the overlap rule.
       const patch: Record<string, unknown> = {};
       if (title !== initial.title) patch.title = title;
       if (note !== initial.note) patch.note = note;
+      if (category !== initial.category) patch.category = category;
       if (classesOnly !== initial.classesOnly) patch.classesOnly = classesOnly;
       if (start !== initial.start) patch.startDate = start;
       if (end !== initial.end) patch.endDate = end;
@@ -186,10 +196,7 @@ function HolidayForm({
     const r = await request;
     setSaving(false);
     if (r.ok) {
-      const trimmed = (r.data as { trimmed?: { startDate: string; endDate: string } } | null)
-        ?.trimmed;
-      const done = editing ? 'Holiday updated.' : 'Holiday added.';
-      return onDone(trimmed ? `${done} ${trimNote(trimmed, offDays)}` : done);
+      return onDone(editing ? 'Updated.' : 'Saved.');
     }
     if (r.code === 'PAST_CONFIRM') return setPastMsg(r.message);
     if (r.code === 'OVERLAP' && r.conflicts) {
@@ -207,6 +214,35 @@ function HolidayForm({
       }}
       className="space-y-4"
     >
+      <div>
+        <span className="mb-1 block text-sm font-medium">Type</span>
+        <div className="flex flex-wrap gap-3 text-sm">
+          {(
+            [
+              ['HOLIDAY', 'Common / Official Holiday'],
+              ['MID_BREAK', 'Mid Break'],
+              ['UNOFFICIAL_BREAK', 'Unofficial Break'],
+              ['SEMESTER_BREAK', 'Semester Break'],
+            ] as const
+          ).map(([val, label]) => (
+            <label key={val} className="flex cursor-pointer items-center gap-1.5">
+              <input
+                type="radio"
+                name="holiday-category"
+                value={val}
+                checked={category === val}
+                onChange={() => {
+                  setCategory(val);
+                  if (val !== 'HOLIDAY') setClassesOnly(true);
+                }}
+                className="accent-indigo-600"
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </div>
+
       <label className="block text-sm font-medium">
         Title
         <input
@@ -259,8 +295,6 @@ function HolidayForm({
           />
         </label>
       </div>
-      <TrimHint start={start} end={end} offDays={offDays} />
-
       <AudienceChips structure={structure} selected={selected} onChange={setSelected} />
 
       <OverlapLine conflicts={shown} checking={checking} onEdit={onEditExisting} />

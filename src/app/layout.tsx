@@ -19,7 +19,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className="bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
+      <body
+        suppressHydrationWarning
+        className="bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100"
+      >
         {children}
       </body>
     </html>

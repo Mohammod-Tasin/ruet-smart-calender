@@ -15,13 +15,11 @@ import { getStructure } from '@/server/db/queries';
 import { admins, auditLog, holidayAudience, holidays } from '@/server/db/schema';
 import { ruleOccurrences } from './rules';
 import {
-  ALL_WEEKLY_OFF,
   audienceProblem,
   fail,
   lockWrites,
   ok,
   pastGate,
-  trimRange,
   type Person,
   type Result,
 } from './shared';
@@ -242,16 +240,7 @@ export async function createHoliday(
   raw: CreateHolidayInput,
   today?: string,
 ): Promise<Result<{ holiday: HolidayView; trimmed?: { startDate: string; endDate: string } }>> {
-  let input = raw;
-  let trimmed: { startDate: string; endDate: string } | undefined;
-  if (raw.category !== 'SUSPENDED_WEEK') {
-    const t = trimRange(raw);
-    if (!t) return fail('UNPROCESSABLE', ALL_WEEKLY_OFF);
-    if (t.trimmed) {
-      trimmed = { startDate: t.startDate, endDate: t.endDate };
-      input = { ...raw, ...trimmed };
-    }
-  }
+  const input = raw;
   return getDb().transaction(async (tx) => {
     await lockWrites(tx);
     const structure = await getStructure(tx);
@@ -301,7 +290,7 @@ export async function createHoliday(
       after: withConfirmed(after, conflicts),
     });
 
-    return ok({ holiday: view((await fetchOne(tx, id))!, structure), trimmed });
+    return ok({ holiday: view((await fetchOne(tx, id))!, structure) });
   });
 }
 
@@ -311,7 +300,6 @@ export async function updateHoliday(
   patch: PatchHolidayInput,
   today?: string,
 ): Promise<Result<{ holiday: HolidayView; trimmed?: { startDate: string; endDate: string } }>> {
-  let trimmed: { startDate: string; endDate: string } | undefined;
   return getDb().transaction(async (tx) => {
     await lockWrites(tx);
     const existing = await fetchOne(tx, id);
@@ -328,14 +316,6 @@ export async function updateHoliday(
     };
     if (merged.endDate < merged.startDate) {
       return fail('BAD_REQUEST', 'endDate must be on or after startDate.');
-    }
-    if (merged.category !== 'SUSPENDED_WEEK' && (patch.startDate || patch.endDate)) {
-      const t = trimRange(merged);
-      if (!t) return fail('UNPROCESSABLE', ALL_WEEKLY_OFF);
-      if (t.trimmed) {
-        trimmed = { startDate: t.startDate, endDate: t.endDate };
-        Object.assign(merged, trimmed);
-      }
     }
     const suspended = suspendedWeekProblem(merged);
     if (suspended) return fail('BAD_REQUEST', suspended);
@@ -398,7 +378,7 @@ export async function updateHoliday(
       after: withConfirmed(snapshot({ ...merged, deletedAt: null }), conflicts),
     });
 
-    return ok({ holiday: view((await fetchOne(tx, id))!, structure), trimmed });
+    return ok({ holiday: view((await fetchOne(tx, id))!, structure) });
   });
 }
 

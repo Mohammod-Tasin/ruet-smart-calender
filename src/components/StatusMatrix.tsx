@@ -1,13 +1,21 @@
 'use client';
 import type { ApiStructure } from '@/lib/api';
-import { cellText, headline, NONE_CELL, PHASE_STYLE, type StatusEntry } from '@/lib/journey-ui';
+import {
+  cellText,
+  headline,
+  HOLIDAY_STRIP,
+  NONE_CELL,
+  PHASE_STYLE,
+  UNOFFICIAL_STRIP,
+  type StatusEntry,
+} from '@/lib/journey-ui';
 
 const sticky = 'sticky left-0 z-10 bg-white dark:bg-zinc-950';
 
 /**
  * Departments (grouped by faculty) down, intake years across. The first column sticks, so on a
- * 360px phone only the table scrolls sideways, never the page. With `onColumn` (admin) the
- * column header becomes a button for the whole intake.
+ * 360px phone only the table scrolls sideways, never the page. With `onColumn` / `onDepartment`
+ * (admin) the column and row headers become buttons for editing a whole batch or department.
  */
 export function StatusMatrix({
   structure,
@@ -15,6 +23,7 @@ export function StatusMatrix({
   loading,
   onCell,
   onColumn,
+  onDepartment,
   highlight,
 }: {
   structure: ApiStructure;
@@ -22,6 +31,7 @@ export function StatusMatrix({
   loading: boolean;
   onCell: (e: StatusEntry) => void;
   onColumn?: (year: number) => void;
+  onDepartment?: (deptId: number) => void;
   /** Series ids to draw attention to (the admin to-do "Set status" link). */
   highlight?: Set<number>;
 }) {
@@ -73,8 +83,23 @@ export function StatusMatrix({
             </tr>
             {depts.map((d) => (
               <tr key={d.id}>
-                <th scope="row" className={`${sticky} px-2 py-0.5 text-sm font-medium`}>
-                  {d.code}
+                <th scope="row" className={`${sticky} px-1.5 py-0.5 text-sm font-medium`}>
+                  {onDepartment ? (
+                    <button
+                      type="button"
+                      onClick={() => onDepartment(d.id)}
+                      title={`Edit ${d.code} (${d.name})`}
+                      aria-label={`Edit ${d.code} department`}
+                      className="flex w-full items-center justify-between gap-1 rounded-md border border-indigo-200 bg-indigo-50/70 px-2 py-1.5 text-left text-xs font-semibold text-indigo-950 hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-indigo-900 dark:bg-indigo-950/70 dark:text-indigo-100 dark:hover:bg-indigo-900"
+                    >
+                      <span>{d.code}</span>
+                      <span aria-hidden className="text-[10px] opacity-70">
+                        ▸
+                      </span>
+                    </button>
+                  ) : (
+                    <span className="px-0.5">{d.code}</span>
+                  )}
                 </th>
                 {years.map((y) => {
                   const s = structure.series.find(
@@ -126,6 +151,13 @@ function Cell({
   }
   const s = entry.state;
   const running = s.status === 'RUNNING' && s.phase;
+  const style = !running
+    ? NONE_CELL
+    : s.onSkippedWeek
+      ? s.onUnofficialBreak
+        ? UNOFFICIAL_STRIP
+        : `${HOLIDAY_STRIP} text-white dark:text-rose-100`
+      : PHASE_STYLE[s.phase!].cell;
   return (
     <button
       type="button"
@@ -133,9 +165,7 @@ function Cell({
       aria-label={headline(entry)}
       className={`${box} text-xs leading-tight focus-visible:outline-2 focus-visible:outline-indigo-500 ${
         mark ? 'ring-2 ring-amber-500' : ''
-      } ${
-        running ? PHASE_STYLE[s.phase!].cell : NONE_CELL
-      } ${s.onSkippedWeek ? 'border border-dashed border-current' : ''}`}
+      } ${style} ${s.onSkippedWeek && !s.onUnofficialBreak ? 'border border-dashed border-current' : ''}`}
     >
       <span className="font-semibold">{cellText(s)}</span>
       {running && s.semesterLabel && (
