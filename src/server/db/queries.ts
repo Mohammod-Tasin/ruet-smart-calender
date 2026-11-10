@@ -5,14 +5,37 @@ import type { AudienceEntry, Structure } from '@/core/calendar/types';
 import { getDb, type Executor } from './client';
 import { admins, departments, faculties, holidayAudience, holidays, series } from './schema';
 
-/** Faculties, departments and ACTIVE series. */
-export async function getStructure(x: Executor = getDb()) {
+type StructureResult = {
+  faculties: (typeof faculties.$inferSelect)[];
+  departments: (typeof departments.$inferSelect)[];
+  series: (typeof series.$inferSelect)[];
+};
+
+let cachedStructure: { data: StructureResult; expiresAt: number } | null = null;
+const STRUCTURE_CACHE_TTL_MS = 60_000;
+
+/** Faculties, departments and ACTIVE series (cached in-memory for 60s when using default DB). */
+export async function getStructure(x: Executor = getDb()): Promise<StructureResult> {
+  const isDefaultDb = x === getDb();
+  const now = Date.now();
+  if (isDefaultDb && cachedStructure && cachedStructure.expiresAt > now) {
+    return cachedStructure.data;
+  }
+
   const [facultyRows, departmentRows, seriesRows] = await Promise.all([
     x.select().from(faculties).orderBy(asc(faculties.sortOrder), asc(faculties.id)),
     x.select().from(departments).orderBy(asc(departments.code)),
     x.select().from(series).where(eq(series.isActive, true)).orderBy(asc(series.id)),
   ]);
-  return { faculties: facultyRows, departments: departmentRows, series: seriesRows };
+  const data = { faculties: facultyRows, departments: departmentRows, series: seriesRows };
+  if (isDefaultDb) {
+    cachedStructure = { data, expiresAt: now + STRUCTURE_CACHE_TTL_MS };
+  }
+  return data;
+}
+
+export function invalidateStructureCache() {
+  cachedStructure = null;
 }
 
 /** The slice of the structure the core compression logic needs. */

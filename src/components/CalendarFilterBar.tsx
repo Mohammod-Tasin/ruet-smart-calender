@@ -9,6 +9,9 @@ interface CalendarFilterBarProps {
   onChange: (filter: CalendarFilter) => void;
   mySeries?: { dept: string; year: number } | null;
   onPickMySeries?: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  onToday?: () => void;
 }
 
 export function CalendarFilterBar({
@@ -16,6 +19,9 @@ export function CalendarFilterBar({
   filter,
   onChange,
   mySeries,
+  onPrev,
+  onNext,
+  onToday,
 }: CalendarFilterBarProps) {
   // Sort departments alphabetically by code
   const departments = useMemo(() => {
@@ -188,13 +194,13 @@ export function CalendarFilterBar({
   };
 
   return (
-    <div className="space-y-2.5 rounded-xl border border-zinc-200 bg-white p-3 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/60">
-      {/* Row 1: Department buttons: All, CE, CSE, EEE, ME, etc. */}
-      <div className="flex flex-wrap items-center gap-1.5">
+    <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-2.5 shadow-xs sm:p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+      {/* Row 1: Department buttons (scrollable carousel on mobile, wraps on tablet/desktop) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar sm:flex-wrap sm:pb-0">
         <button
           type="button"
           onClick={handleAllToggle}
-          className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
+          className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
             filter.scope === 'ALL_DEPTS'
               ? 'bg-indigo-600 font-semibold text-white shadow-xs'
               : 'border border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
@@ -210,7 +216,7 @@ export function CalendarFilterBar({
               key={d.id}
               type="button"
               onClick={() => handleDeptToggle(d.id, d.code)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
+              className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
                 isSelected
                   ? 'bg-indigo-600 font-semibold text-white shadow-xs'
                   : 'border border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
@@ -225,7 +231,7 @@ export function CalendarFilterBar({
           <button
             type="button"
             onClick={handleClearToDefault}
-            className="ml-auto rounded-md px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="shrink-0 rounded-md px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 sm:ml-auto dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             title="Reset to default common holidays"
           >
             ✕ Reset
@@ -234,12 +240,12 @@ export function CalendarFilterBar({
       </div>
 
       {/* Row 2: Series / Batch buttons + Show Everything toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-2 dark:border-zinc-800/80">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-col gap-2 border-t border-zinc-100 pt-2 sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800/80">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar sm:flex-wrap sm:pb-0">
           <button
             type="button"
             onClick={() => handleBatchSelect(null)}
-            className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
+            className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
               activeBatchYear === null
                 ? 'bg-indigo-600 font-semibold text-white shadow-xs'
                 : 'border border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
@@ -255,7 +261,7 @@ export function CalendarFilterBar({
                 key={yr}
                 type="button"
                 onClick={() => handleBatchSelect(yr)}
-                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
+                className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
                   isSelected
                     ? 'bg-indigo-600 font-semibold text-white shadow-xs'
                     : 'border border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
@@ -270,7 +276,7 @@ export function CalendarFilterBar({
             <button
               type="button"
               onClick={handleSelectMySeries}
-              className="ml-1 inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300"
+              className="shrink-0 ml-1 inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300"
             >
               <span>⭐</span>
               <span>My: {mySeries.dept}-{String(mySeries.year % 100).padStart(2, '0')}</span>
@@ -278,8 +284,8 @@ export function CalendarFilterBar({
           )}
         </div>
 
-        {/* Show Everything toggle */}
-        <div className="flex items-center gap-2">
+        {/* Show Everything toggle + Mobile Month Navigation */}
+        <div className="flex items-center justify-between gap-2 pt-0.5 sm:pt-0">
           <label className="relative inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-zinc-700 select-none dark:text-zinc-300">
             <input
               type="checkbox"
@@ -291,10 +297,36 @@ export function CalendarFilterBar({
             <span className="font-semibold text-zinc-900 dark:text-zinc-100">
               Show Everything
             </span>
-            <span className="hidden text-[11px] text-zinc-500 sm:inline dark:text-zinc-400">
-              (Classes included)
-            </span>
           </label>
+
+          {/* Today ‹ › buttons right aligned on mobile screen */}
+          {onToday && onPrev && onNext && (
+            <div className="flex items-center gap-1 sm:hidden">
+              <button
+                type="button"
+                className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                onClick={onToday}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-300 text-sm font-semibold hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                onClick={onPrev}
+                aria-label="Previous month"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-300 text-sm font-semibold hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                onClick={onNext}
+                aria-label="Next month"
+              >
+                ›
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

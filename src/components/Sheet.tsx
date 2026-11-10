@@ -27,8 +27,10 @@ export function Sheet({
       aria-labelledby={titleId}
       onClose={onClose}
       onClick={(e) => e.target === e.currentTarget && ref.current?.close()}
-      className="fixed inset-x-0 top-auto bottom-0 m-0 max-h-[90dvh] w-full max-w-none flex-col rounded-t-2xl bg-white p-0 text-zinc-900 open:flex md:inset-y-0 md:right-0 md:left-auto md:h-dvh md:max-h-dvh md:w-[30rem] md:rounded-none dark:bg-zinc-900 dark:text-zinc-100 backdrop:bg-black/50"
+      className="fixed inset-x-0 top-auto bottom-0 m-0 max-h-[88dvh] w-full max-w-none flex-col rounded-t-2xl bg-white p-0 text-zinc-900 shadow-2xl open:flex md:inset-y-0 md:right-0 md:left-auto md:h-dvh md:max-h-dvh md:w-[30rem] md:rounded-none dark:bg-zinc-900 dark:text-zinc-100 backdrop:bg-black/50"
     >
+      {/* Mobile handle pull bar */}
+      <div className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-zinc-300 md:hidden dark:bg-zinc-700" />
       <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
         <h2 id={titleId} className="text-base font-semibold">
           {title}

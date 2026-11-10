@@ -174,8 +174,8 @@ export const PHASE_STYLE: Record<JPhase, { cell: string; strip: string }> = {
     strip: 'bg-blue-500 dark:bg-blue-600',
   },
   SEMESTER_BREAK: {
-    cell: 'bg-orange-100 text-orange-950 dark:bg-orange-950 dark:text-orange-100',
-    strip: 'bg-orange-600 dark:bg-orange-700',
+    cell: 'bg-rose-500 text-white dark:bg-rose-700 dark:text-white',
+    strip: 'bg-rose-600 dark:bg-rose-700',
   },
 };
 export const NONE_CELL =

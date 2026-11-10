@@ -151,13 +151,17 @@ function Cell({
   }
   const s = entry.state;
   const running = s.status === 'RUNNING' && s.phase;
+  const isHolidayOrBreak =
+    (s.onSkippedWeek && !s.onUnofficialBreak) || s.phase === 'SEMESTER_BREAK';
   const style = !running
     ? NONE_CELL
     : s.onSkippedWeek
       ? s.onUnofficialBreak
         ? UNOFFICIAL_STRIP
         : `${HOLIDAY_STRIP} text-white dark:text-rose-100`
-      : PHASE_STYLE[s.phase!].cell;
+      : s.phase === 'SEMESTER_BREAK'
+        ? `${HOLIDAY_STRIP} text-white dark:text-rose-100`
+        : PHASE_STYLE[s.phase!].cell;
   return (
     <button
       type="button"
@@ -165,7 +169,7 @@ function Cell({
       aria-label={headline(entry)}
       className={`${box} text-xs leading-tight focus-visible:outline-2 focus-visible:outline-indigo-500 ${
         mark ? 'ring-2 ring-amber-500' : ''
-      } ${style} ${s.onSkippedWeek && !s.onUnofficialBreak ? 'border border-dashed border-current' : ''}`}
+      } ${style} ${isHolidayOrBreak ? 'border border-dashed border-current' : ''}`}
     >
       <span className="font-semibold">{cellText(s)}</span>
       {running && s.semesterLabel && (

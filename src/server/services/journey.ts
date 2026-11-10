@@ -188,6 +188,7 @@ async function loadAll(x: Executor, change?: ProposedChange) {
     positions,
     schedules,
     settings,
+    items,
     journeys: journeysFor(positions, items, structure, settings, schedules),
   };
 }
@@ -251,7 +252,7 @@ export async function seriesJourney(id: number, date: string = todayInDhaka()) {
 export interface AcademicBreakItem {
   id: string;
   title: string;
-  category: 'MID_BREAK' | 'SEMESTER_BREAK' | 'UNOFFICIAL_BREAK' | 'EXAM' | 'CLASS';
+  category: 'MID_BREAK' | 'SEMESTER_BREAK' | 'UNOFFICIAL_BREAK' | 'EXAM' | 'CLASS' | 'VIVA';
   startDate: string;
   endDate: string;
   seriesId: number;
@@ -273,9 +274,24 @@ export async function academicBreaksInRange(
   from: string,
   to: string,
 ): Promise<AcademicBreakItem[]> {
-  const { structure, journeys } = await loadAll(getDb());
+  const { structure, journeys, items } = await loadAll(getDb());
   const rawBreaks: AcademicBreakItem[] = [];
   const deptMap = new Map(structure.departments.map((d) => [d.id, d.code]));
+
+  // Build a set of dates that are common holidays (audience ALL and category HOLIDAY)
+  const commonHolidayDates = new Set<string>();
+  for (const h of items) {
+    const isCommon =
+      h.category === 'HOLIDAY' &&
+      (h.audience.some((a) => a.scopeType === 'ALL') ||
+        coveredSeriesIds(h.audience, structure).size ===
+          structure.series.filter((s) => s.isActive).length);
+    if (isCommon) {
+      for (let d = h.startDate; d <= h.endDate; d = addDays(d, 1)) {
+        commonHolidayDates.add(d);
+      }
+    }
+  }
 
   for (const s of structure.series) {
     if (!s.isActive) continue;
@@ -283,6 +299,41 @@ export async function academicBreaksInRange(
     if (!j) continue;
     const deptCode = deptMap.get(s.departmentId) ?? '';
     const series = seriesLabel(structure, s.id);
+
+    // Group exam weeks by semester to precompute shifted exam dates
+    const shiftedExams = new Map<number, { weekNo: number; date: string }[]>();
+    const lastExamBySem = new Map<number, string>();
+
+    const examWeeksBySem = new Map<number, typeof j.weeks>();
+    for (const w of j.weeks) {
+      if (w.status === 'COUNTED' && w.phase === 'EXAM') {
+        const list = examWeeksBySem.get(w.semesterNo) ?? [];
+        list.push(w);
+        examWeeksBySem.set(w.semesterNo, list);
+      }
+    }
+
+    for (const [semNo, examWeeks] of examWeeksBySem.entries()) {
+      examWeeks.sort((a, b) => a.weekNo - b.weekNo || a.weekStart.localeCompare(b.weekStart));
+      let lastDate: string | null = null;
+      const list: { weekNo: number; date: string }[] = [];
+      for (const w of examWeeks) {
+        let examDate = addDays(w.weekStart, Math.max(0, 5 - w.weekNo));
+        if (lastDate !== null) {
+          const minDate = addDays(lastDate, 5);
+          if (examDate < minDate) {
+            examDate = minDate;
+          }
+        }
+        while (commonHolidayDates.has(examDate)) {
+          examDate = addDays(examDate, 1);
+        }
+        lastDate = examDate;
+        list.push({ weekNo: w.weekNo, date: examDate });
+      }
+      shiftedExams.set(semNo, list);
+      if (lastDate) lastExamBySem.set(semNo, lastDate);
+    }
 
     for (const w of j.weeks) {
       if (w.status === 'COUNTED') {
@@ -308,17 +359,22 @@ export async function academicBreaksInRange(
           }
         } else if (w.phase === 'SEMESTER_BREAK') {
           // Semester break strip: from the day after E5 to Friday of that week
-          const lastExamWeek = [...j.weeks]
-            .reverse()
-            .find(
-              (ew) =>
-                ew.semesterNo === w.semesterNo &&
-                ew.phase === 'EXAM' &&
-                ew.status === 'COUNTED',
-            );
-          const e5Date = lastExamWeek
-            ? addDays(lastExamWeek.weekStart, Math.max(0, 5 - lastExamWeek.weekNo))
-            : addDays(w.weekStart, -1);
+          const e5Date =
+            lastExamBySem.get(w.semesterNo) ??
+            (() => {
+              const lastExamWeek = [...j.weeks]
+                .reverse()
+                .find(
+                  (ew) =>
+                    ew.semesterNo === w.semesterNo &&
+                    ew.phase === 'EXAM' &&
+                    ew.status === 'COUNTED',
+                );
+              return lastExamWeek
+                ? addDays(lastExamWeek.weekStart, Math.max(0, 5 - lastExamWeek.weekNo))
+                : addDays(w.weekStart, -1);
+            })();
+
           const start = addDays(e5Date, 1);
           const examWeekFriday = addDays(weekStartOf(e5Date), 6);
           const end = start <= examWeekFriday ? examWeekFriday : addDays(weekStartOf(start), 6);
@@ -339,8 +395,8 @@ export async function academicBreaksInRange(
             });
           }
         } else if (w.phase === 'EXAM') {
-          // Exam date: E1 Wed (+4), E2 Tue (+3), E3 Mon (+2), E4 Sun (+1), E5 Sat (+0)
-          const examDate = addDays(w.weekStart, Math.max(0, 5 - w.weekNo));
+          const shifted = shiftedExams.get(w.semesterNo)?.find((x) => x.weekNo === w.weekNo);
+          const examDate = shifted?.date ?? addDays(w.weekStart, Math.max(0, 5 - w.weekNo));
           if (examDate >= from && examDate <= to) {
             rawBreaks.push({
               id: `exam:${s.id}:${w.semesterNo}:${w.weekNo}:${examDate}`,
@@ -358,26 +414,52 @@ export async function academicBreaksInRange(
               tentative: !w.confirmed,
             });
           }
-        } else if (w.phase === 'CLASS') {
-          // Class week: Saturday to Wednesday
-          const start = w.weekStart;
-          const end = addDays(w.weekStart, 4);
-          if (end >= from && start <= to) {
-            rawBreaks.push({
-              id: `class:${s.id}:${w.semesterNo}:${w.weekNo}:${start}`,
-              title: `Class week ${w.weekNo}`,
-              category: 'CLASS',
-              startDate: start,
-              endDate: end,
-              seriesId: s.id,
-              departmentId: s.departmentId,
-              series,
-              deptCode,
-              intakeYear: s.intakeYear,
-              semesterNo: w.semesterNo,
-              weekNo: w.weekNo,
-              tentative: !w.confirmed,
-            });
+        } else if (w.phase === 'CLASS' || w.phase === 'VIVA') {
+          // Working days: Saturday to Wednesday. Omit any days that are common holidays.
+          const workDays = [0, 1, 2, 3, 4].map((i) => addDays(w.weekStart, i));
+          const validDays = workDays.filter((d) => !commonHolidayDates.has(d));
+
+          const segments: { start: string; end: string }[] = [];
+          let curStart: string | null = null;
+          let curEnd: string | null = null;
+          for (const d of validDays) {
+            if (curStart === null) {
+              curStart = d;
+              curEnd = d;
+            } else if (d === addDays(curEnd!, 1)) {
+              curEnd = d;
+            } else {
+              segments.push({ start: curStart, end: curEnd! });
+              curStart = d;
+              curEnd = d;
+            }
+          }
+          if (curStart !== null && curEnd !== null) {
+            segments.push({ start: curStart, end: curEnd });
+          }
+
+          const category = w.phase;
+          const title = category === 'VIVA' ? 'Board Viva' : `Class week ${w.weekNo}`;
+          const prefix = category === 'VIVA' ? 'viva' : 'class';
+
+          for (const seg of segments) {
+            if (seg.end >= from && seg.start <= to) {
+              rawBreaks.push({
+                id: `${prefix}:${s.id}:${w.semesterNo}:${w.weekNo}:${seg.start}`,
+                title,
+                category,
+                startDate: seg.start,
+                endDate: seg.end,
+                seriesId: s.id,
+                departmentId: s.departmentId,
+                series,
+                deptCode,
+                intakeYear: s.intakeYear,
+                semesterNo: w.semesterNo,
+                weekNo: w.weekNo,
+                tentative: !w.confirmed,
+              });
+            }
           }
         }
       } else if (w.status === 'SKIPPED') {

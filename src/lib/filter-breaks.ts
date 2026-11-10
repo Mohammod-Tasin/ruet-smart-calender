@@ -51,6 +51,7 @@ const BREAK_CATEGORIES = new Set([
   'SEMESTER_BREAK',
   'EXAM',
   'CLASS',
+  'VIVA',
 ]);
 
 /** "CSE · EEE-22": whole departments collapse to their code, otherwise series labels. */
@@ -141,7 +142,7 @@ export function mergeSameBreaks(
       continue;
     }
     const key =
-      h.category === 'CLASS' || h.category === 'EXAM'
+      h.category === 'CLASS' || h.category === 'EXAM' || h.category === 'VIVA'
         ? `${h.category}:${baseTitle(h.title)}:${h.startDate}:${h.endDate}`
         : `${h.category}:${h.startDate}:${h.endDate}`;
     groups.set(key, [...(groups.get(key) ?? []), h]);
@@ -246,9 +247,104 @@ export function filterAndMergeBreaks(
     candidate = breaks.filter((b) => b.intakeYear === filter.batch);
   }
 
-  // 1b. If Show Everything is NOT checked: hide CLASS weeks (keep Mid, Semester, Unofficial breaks & Exam dates)
+  // 1b. If Show Everything is NOT checked: hide CLASS and VIVA weeks (keep Mid, Semester, Unofficial breaks & Exam dates)
   if (!filter.showEverything) {
-    candidate = candidate.filter((b) => b.category !== 'CLASS');
+    candidate = candidate.filter((b) => b.category !== 'CLASS' && b.category !== 'VIVA');
+  }
+
+  // 1c. Collect common holidays to ensure no class or exam falls on a common holiday.
+  //     If an exam lands on a common holiday, it shifts to the next day, and the next exam is after at least 5 days.
+  //     If a class or viva week overlaps a common holiday, it is split so no class/viva covers the holiday.
+  const commonHolidayDates = new Set<string>();
+  for (const h of explicitHolidays) {
+    if (isCommonHoliday(h)) {
+      for (let d = h.startDate; d <= h.endDate; d = addDays(d, 1)) {
+        commonHolidayDates.add(d);
+      }
+    }
+  }
+
+  if (commonHolidayDates.size > 0) {
+    const adjusted: AcademicBreakItem[] = [];
+
+    // Group exams by series and semester to shift them if they land on common holidays
+    const examsBySeriesSem = new Map<string, AcademicBreakItem[]>();
+    for (const b of candidate) {
+      if (b.category === 'EXAM') {
+        const key = `${b.seriesId}:${b.semesterNo}`;
+        const list = examsBySeriesSem.get(key) ?? [];
+        list.push(b);
+        examsBySeriesSem.set(key, list);
+      }
+    }
+
+    for (const examList of examsBySeriesSem.values()) {
+      examList.sort(
+        (a, b) => (a.weekNo ?? 1) - (b.weekNo ?? 1) || a.startDate.localeCompare(b.startDate),
+      );
+      let lastExamDate: string | null = null;
+      for (const ex of examList) {
+        let date = ex.startDate;
+        if (lastExamDate !== null) {
+          const minDate = addDays(lastExamDate, 5);
+          if (date < minDate) {
+            date = minDate;
+          }
+        }
+        while (commonHolidayDates.has(date)) {
+          date = addDays(date, 1);
+        }
+        lastExamDate = date;
+        ex.startDate = date;
+        ex.endDate = date;
+        ex.id = `exam:${ex.seriesId}:${ex.semesterNo}:${ex.weekNo ?? 1}:${date}`;
+      }
+    }
+
+    for (const b of candidate) {
+      if (b.category === 'EXAM') {
+        adjusted.push(b);
+      } else if (b.category === 'CLASS' || b.category === 'VIVA') {
+        // Split around common holidays
+        const validDays: string[] = [];
+        for (let d = b.startDate; d <= b.endDate; d = addDays(d, 1)) {
+          if (!commonHolidayDates.has(d)) {
+            validDays.push(d);
+          }
+        }
+        if (validDays.length > 0) {
+          const segments: { start: string; end: string }[] = [];
+          let curStart: string | null = null;
+          let curEnd: string | null = null;
+          for (const d of validDays) {
+            if (curStart === null) {
+              curStart = d;
+              curEnd = d;
+            } else if (d === addDays(curEnd!, 1)) {
+              curEnd = d;
+            } else {
+              segments.push({ start: curStart, end: curEnd! });
+              curStart = d;
+              curEnd = d;
+            }
+          }
+          if (curStart !== null && curEnd !== null) {
+            segments.push({ start: curStart, end: curEnd });
+          }
+          for (const seg of segments) {
+            adjusted.push({
+              ...b,
+              id: `${b.id}:${seg.start}`,
+              startDate: seg.start,
+              endDate: seg.end,
+            });
+          }
+        }
+      } else {
+        adjusted.push(b);
+      }
+    }
+    candidate = adjusted;
   }
 
   // 2. Remove breaks that are already explicitly covered in holidays
@@ -341,7 +437,9 @@ export function filterAndMergeBreaks(
     const note =
       category === 'EXAM'
         ? `Final exams: ${group.map((g) => `E${g.weekNo ?? 1} for ${g.series} (Sem ${semLabel(g.semesterNo)})`).join(', ')}`
-        : null;
+        : category === 'VIVA'
+          ? `Board Viva: ${group.map((g) => `${g.series} (Sem ${semLabel(g.semesterNo)})`).join(', ')}`
+          : null;
 
     const id =
       category === 'CLASS'

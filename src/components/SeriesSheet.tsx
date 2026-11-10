@@ -20,8 +20,8 @@ const STAGE_CHIP_STYLE: Partial<Record<JPhase, { off: string; on: string }>> = {
     on: 'border-orange-600 bg-orange-600 text-white font-bold shadow-sm ring-2 ring-orange-500 ring-offset-2 dark:border-orange-500 dark:bg-orange-600 dark:text-white',
   },
   SEMESTER_BREAK: {
-    off: 'border-orange-300 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/60 dark:text-orange-200 dark:hover:bg-orange-900/70',
-    on: 'border-orange-600 bg-orange-600 text-white font-bold shadow-sm ring-2 ring-orange-500 ring-offset-2 dark:border-orange-500 dark:bg-orange-600 dark:text-white',
+    off: 'border-rose-300 bg-rose-50 text-rose-900 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-200 dark:hover:bg-rose-900/70',
+    on: 'border-rose-600 bg-rose-600 text-white font-bold shadow-sm ring-2 ring-rose-500 ring-offset-2 dark:border-rose-500 dark:bg-rose-600 dark:text-white',
   },
   VIVA: {
     off: 'border-purple-300 bg-purple-50 text-purple-900 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950/60 dark:text-purple-200 dark:hover:bg-purple-900/70',
@@ -102,14 +102,24 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
   // Use the current semester from the running state or the earliest recorded semester
   const sem = running && s.semesterNo ? s.semesterNo : (d.weeks[0]?.semesterNo ?? 1);
 
+  const semesterWeeks = useMemo(
+    () => d.weeks.filter((w) => w.semesterNo === sem),
+    [d.weeks, sem],
+  );
+  const lastExamWeek = useMemo(
+    () => [...semesterWeeks].reverse().find((w) => w.phase === 'EXAM'),
+    [semesterWeeks],
+  );
+  const e5Date = useMemo(
+    () =>
+      lastExamWeek
+        ? addDays(lastExamWeek.weekStart, Math.max(0, 5 - lastExamWeek.weekNo))
+        : null,
+    [lastExamWeek],
+  );
+
   // Build the timeline entries for the current semester directly from the engine's computed weeks
   const timelineEntries = useMemo((): TimelineEntry[] => {
-    const semesterWeeks = d.weeks.filter((w) => w.semesterNo === sem);
-    const lastExamWeek = [...semesterWeeks].reverse().find((w) => w.phase === 'EXAM');
-    const e5Date = lastExamWeek
-      ? addDays(lastExamWeek.weekStart, Math.max(0, 5 - lastExamWeek.weekNo))
-      : null;
-
     return semesterWeeks.map((w): TimelineEntry => {
       if (w.status === 'SKIPPED') {
         const isUnofficial = w.skipReasons.some(
@@ -161,19 +171,26 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
         week: w,
       };
     });
-  }, [d.weeks, sem]);
+  }, [semesterWeeks, e5Date]);
 
   // Find the entry that represents the current position in time
   const currentEntry = useMemo(
     () =>
       timelineEntries.find((e) => {
+        const isExam5 =
+          e.kind === 'item' && e.item.phase === 'EXAM' && e.week.weekNo === lastExamWeek?.weekNo;
+        const isBreak = e.kind === 'item' && e.item.phase === 'SEMESTER_BREAK';
         const start =
           e.kind === 'item' && e.item.phase === 'MID_BREAK'
             ? addDays(e.week.weekStart, -2)
-            : e.week.weekStart;
-        return date >= start && date < addDays(e.week.weekStart, 7);
+            : isBreak && e5Date
+              ? addDays(e5Date, 1)
+              : e.week.weekStart;
+        const end =
+          isExam5 && e5Date ? addDays(e5Date, 1) : addDays(e.week.weekStart, 7);
+        return date >= start && date < end;
       }) ?? null,
-    [timelineEntries, date],
+    [timelineEntries, date, e5Date, lastExamWeek],
   );
 
   const [pickedEntry, setPickedEntry] = useState<TimelineEntry | null>(null);
@@ -252,11 +269,21 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
               g.entries.map((entry, ei) => {
                 const first = ei === 0;
                 const last = ei === g.entries.length - 1;
+                const isExam5 =
+                  entry.kind === 'item' &&
+                  entry.item.phase === 'EXAM' &&
+                  entry.week.weekNo === lastExamWeek?.weekNo;
+                const isBreak =
+                  entry.kind === 'item' && entry.item.phase === 'SEMESTER_BREAK';
                 const isCurrentWeek =
                   running &&
                   (entry.kind === 'item' && entry.item.phase === 'MID_BREAK'
                     ? date >= addDays(entry.week.weekStart, -2) && date < addDays(entry.week.weekStart, 7)
-                    : date >= entry.week.weekStart && date < addDays(entry.week.weekStart, 7));
+                    : isExam5 && e5Date
+                      ? date >= entry.week.weekStart && date < addDays(e5Date, 1)
+                      : isBreak && e5Date
+                        ? date >= addDays(e5Date, 1) && date < addDays(entry.week.weekStart, 7)
+                        : date >= entry.week.weekStart && date < addDays(entry.week.weekStart, 7));
                 const isSelected = activeEntry === entry;
 
                 let chip: React.ReactNode;

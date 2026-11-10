@@ -790,6 +790,17 @@ function WhereSheet({
       let date = w;
       if (s.item.phase === 'EXAM') {
         date = addDays(w, 5 - s.item.weekNo);
+        while (
+          holidays.some(
+            (h) =>
+              h.label === 'ALL' &&
+              h.category === 'HOLIDAY' &&
+              h.startDate <= date &&
+              date <= h.endDate,
+          )
+        ) {
+          date = addDays(date, 1);
+        }
       } else if (s.item.phase === 'MID_BREAK') {
         date = addDays(w, -2);
       }
@@ -860,13 +871,6 @@ function WhereSheet({
     target.kind === 'series'
       ? `Edit ${target.entry.series}`
       : `Edit Batch ${target.year}`;
-  const stageText = phase
-    ? phase === 'CLASS'
-      ? `Class week ${weekNo}`
-      : phase === 'EXAM'
-        ? `Semester Final week ${weekNo} (E${weekNo})`
-        : PHASE_LABEL[phase]
-    : '';
 
   async function save() {
     if (!ready || !sem || !phase) return;
@@ -1051,14 +1055,6 @@ function WhereSheet({
     toast(`Status saved for ${who}.`);
     onSaved();
   }
-
-  const extendedWeeks =
-    totalClasses > defaultTotalClasses
-      ? Array.from(
-          { length: totalClasses - defaultTotalClasses },
-          (_, i) => defaultTotalClasses + i + 1,
-        )
-      : [];
 
   return (
     <Sheet title={title} onClose={onClose}>
