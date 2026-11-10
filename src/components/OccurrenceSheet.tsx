@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { todayInDhaka } from '@/core/calendar/grid';
 import { planOccurrenceEdit, type EditScope } from '@/core/calendar/past';
 import type { RuleParams } from '@/core/calendar/rules';
+import { trimOffDays } from '@/core/calendar/trim';
 import { isRealDate } from '@/core/validation/holidays-query';
 import { api, type AuditEntry, type PublicHoliday } from '@/lib/api';
-import { dateRange, stamp } from '@/lib/format';
+import { dateRange, stamp, weekendRange } from '@/lib/format';
 import { ImpactPreview } from './ImpactPreview';
 import { PastConfirm } from './PastConfirm';
 import { Sheet } from './Sheet';
 import { useToast } from './Toast';
+import { TrimHint } from './TrimHint';
 import { field, primary, small } from './ui';
 
 const UNDO_MS = 10_000;
@@ -22,15 +24,19 @@ export const yearlyRuleHref = (ruleId: number, year: number, open?: 'edit' | 'en
   `/admin?tab=settings&year=${year}&rule=${ruleId}${open ? `&do=${open}` : ''}`;
 
 /**
- * Tap a bar of a yearly holiday: change its date, remove it for this year, or remove permanently
- * in 1–2 clicks.
+ * Tap a bar of a yearly holiday: change its date (this year, or from a year on), remove it for
+ * this year, remove it permanently, or reach the rarer actions. The time rules are mirrored here
+ * from core/calendar/past to disable choices early; the server enforces them again (it never
+ * trusts this).
  */
 export function OccurrenceSheet({
   holiday: h,
+  offDays = [],
   onClose,
   onChanged,
 }: {
   holiday: PublicHoliday;
+  /** Weekly off days (Thu/Fri): trimmed off a typed range, like the server does. */
   offDays?: number[];
   onClose: () => void;
   onChanged: () => void;
@@ -62,9 +68,10 @@ export function OccurrenceSheet({
     kind === 'GREGORIAN_FIXED' || (kind === 'HIJRI' && !!params && 'startHijri' in params);
 
   const datesOk = isRealDate(start) && isRealDate(end) && end >= start;
+  // What the server will save: weekly off days (Thu/Fri) trimmed off the typed ends.
   const proposed = useMemo(
-    () => (datesOk ? { startDate: start, endDate: end } : null),
-    [datesOk, start, end],
+    () => (datesOk ? (trimOffDays({ startDate: start, endDate: end }, offDays) ?? null) : null),
+    [datesOk, start, end, offDays],
   );
   const original = { startDate: h.startDate, endDate: h.endDate };
   const plans = useMemo(() => {
@@ -188,8 +195,8 @@ export function OccurrenceSheet({
     return <RuleHistory ruleId={ruleId} title={h.title} onClose={() => setHistory(false)} />;
   }
 
-  const typeBadge =
-    kind === 'GREGORIAN_FIXED' ? 'Yearly Fixed Holiday' : 'Yearly Variable Holiday';
+  const weekend = weekendRange(original, offDays);
+  const typeBadge = kind === 'GREGORIAN_FIXED' ? 'Yearly Fixed Holiday' : 'Yearly Variable Holiday';
 
   return (
     <Sheet title={h.title} onClose={onClose}>
@@ -201,6 +208,11 @@ export function OccurrenceSheet({
           · {typeBadge}
           {h.tentative && ' · Expected date'}
         </p>
+        {weekend && (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            With the weekend, students are off {weekend}.
+          </p>
+        )}
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Last changed by {h.updatedBy.name} · {stamp(h.updatedAt)}
         </p>
@@ -225,6 +237,9 @@ export function OccurrenceSheet({
             <div className="flex flex-wrap gap-2 pt-1 text-sm">
               <Link href={yearlyRuleHref(ruleId, year, 'edit')} className={small}>
                 Edit name
+              </Link>
+              <Link href={yearlyRuleHref(ruleId, year, 'end')} className={small}>
+                Stop repeating
               </Link>
               <button type="button" className={small} onClick={() => setHistory(true)}>
                 History
@@ -327,6 +342,7 @@ export function OccurrenceSheet({
                 />
               </label>
             </div>
+            <TrimHint start={start} end={end} offDays={offDays} />
 
             <fieldset className="space-y-1.5">
               <legend className="text-sm font-medium">Apply this change to</legend>
