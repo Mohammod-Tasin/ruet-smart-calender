@@ -1,5 +1,6 @@
 import type { PublicHoliday } from '@/lib/api';
-import { audienceText, dateRange, stamp } from '@/lib/format';
+import { widensOverWeekend } from '@/core/calendar/extend';
+import { audienceText, dateRange, stamp, weekendRange } from '@/lib/format';
 
 export const labelColor = (label: string) =>
   label === 'ALL'
@@ -13,14 +14,18 @@ const badge =
 export function HolidayCard({
   holiday: h,
   actions,
+  offDays,
 }: {
   holiday: Pick<PublicHoliday, 'title' | 'label' | 'startDate' | 'endDate' | 'note' | 'updatedAt'> &
     Partial<Pick<PublicHoliday, 'classesOnly' | 'tentative' | 'source' | 'category'>> & {
       updatedBy: { name: string };
     };
   actions?: React.ReactNode;
+  /** Weekly off days; when given, the card says how the weekend extends the holiday. */
   offDays?: number[];
 }) {
+  // Study phases (exam, class weeks, viva) are not days off, so no weekend line for them.
+  const weekend = offDays && widensOverWeekend(h.category ?? 'HOLIDAY') && weekendRange(h, offDays);
   return (
     <article className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
       <h3 className="font-medium">{h.title}</h3>
@@ -66,6 +71,11 @@ export function HolidayCard({
         )}
         {h.source === 'RULE' && <span className={badge}>Yearly</span>}
       </p>
+      {weekend && (
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          With the weekend, students are off {weekend}.
+        </p>
+      )}
       {h.note && !h.note.startsWith('Applies to:') && (
         <p className="mt-2 text-sm whitespace-pre-line">{h.note}</p>
       )}

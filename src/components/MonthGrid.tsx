@@ -1,6 +1,7 @@
 'use client';
 import { useMemo, useSyncExternalStore } from 'react';
 import { holidaysByDate, type GridCell } from '@/core/calendar/grid';
+import { barRuns, extendWithAdjacentOffDays, widensOverWeekend } from '@/core/calendar/extend';
 import { layoutWeek } from '@/core/calendar/lanes';
 import { categoryStyle } from '@/lib/categories';
 import type { PublicHoliday } from '@/lib/api';
@@ -59,10 +60,15 @@ export function MonthGrid({
     () => (holidays ? holidaysByDate(cells, holidays) : null),
     [cells, holidays],
   );
-  const barItems = useMemo(
-    () => (holidays ?? []).map((h) => ({ id: h.id, startDate: h.startDate, endDate: h.endDate, h })),
-    [holidays],
-  );
+  // Display only: bars also cover the Thu/Fri that touch a holiday (faint part). `holidays` is
+  // already filtered by the calendar filters, so the widening never shows a hidden holiday.
+  const barItems = useMemo(() => {
+    const off = [...new Set(cells.filter((c) => c.isOff).map((c) => c.weekday))];
+    return (holidays ?? []).map((h) => {
+      const e = widensOverWeekend(h.category) ? extendWithAdjacentOffDays(h, off) : h;
+      return { id: h.id, startDate: e.startDate, endDate: e.endDate, h };
+    });
+  }, [cells, holidays]);
   const weeks = useMemo(
     () => Array.from({ length: cells.length / 7 }, (_, i) => cells.slice(i * 7, i * 7 + 7)),
     [cells],
@@ -129,33 +135,39 @@ export function MonthGrid({
                         style={{ gridColumn: '2 / 5', gridRow: 1 }}
                       />
                     )
-                  : layout.bars.map((b) => {
+                  : layout.bars.flatMap((b) => {
                       const h = b.item.h;
                       const start = h.startDate < dates[0]! ? dates[0]! : h.startDate;
                       const style = categoryStyle(h.category);
-                      const left = !b.continuesLeft;
-                      const right = !b.continuesRight;
-                      const text = `${b.continuesLeft ? '◂ ' : ''}${h.category === 'SUSPENDED_WEEK' ? 'Classes suspended' : h.title}${h.label === 'ALL' || h.category === 'EXAM' ? '' : ` · ${audienceText(h.label)}`}${b.continuesRight ? ' ▸' : ''}`;
-                      return (
-                        <button
-                          key={`${h.id}:${b.lane}:${b.startCol}`}
-                          type="button"
-                          aria-label={`${h.title}${h.label === 'ALL' || h.category === 'EXAM' ? '' : `, ${audienceText(h.label)}`}, ${dateRange(h.startDate, h.endDate)}${h.tentative ? ', expected date' : ''}`}
-                          onClick={() => onCell(start, h.id)}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          style={{
-                            gridColumn: `${b.startCol + 1} / ${b.endCol + 2}`,
-                            gridRow: b.lane + 1,
-                          }}
-                          className={`pointer-events-auto truncate px-1 text-left text-[9px] leading-4 font-medium sm:text-xs sm:leading-5 ${style.solid} ${
-                            left ? 'rounded-l' : ''
-                          } ${right ? 'rounded-r' : ''} ${
-                            h.tentative ? `${STRIPES} border border-dashed border-white/70` : ''
-                          }`}
-                        >
-                          {text}
-                        </button>
-                      );
+                      const real = dates.map((d) => d >= h.startDate && d <= h.endDate);
+                      const who =
+                        h.label === 'ALL' || h.category === 'EXAM' ? '' : audienceText(h.label);
+                      return barRuns(real, b.startCol, b.endCol).map(([from, to, faint]) => {
+                        const left = from === b.startCol && !b.continuesLeft;
+                        const right = to === b.endCol && !b.continuesRight;
+                        const text = faint
+                          ? ''
+                          : `${b.continuesLeft && from === b.startCol ? '◂ ' : ''}${h.category === 'SUSPENDED_WEEK' ? 'Classes suspended' : h.title}${who ? ` · ${who}` : ''}${b.continuesRight && to === b.endCol ? ' ▸' : ''}`;
+                        return (
+                          <button
+                            key={`${h.id}:${b.lane}:${from}`}
+                            type="button"
+                            aria-label={`${h.title}${who ? `, ${who}` : ''}, ${dateRange(h.startDate, h.endDate)}${h.tentative ? ', expected date' : ''}${faint ? ', weekend' : ''}`}
+                            aria-hidden={faint || undefined}
+                            tabIndex={faint ? -1 : undefined}
+                            onClick={() => onCell(start, h.id)}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            style={{ gridColumn: `${from + 1} / ${to + 2}`, gridRow: b.lane + 1 }}
+                            className={`pointer-events-auto truncate px-1 text-left text-[9px] leading-4 font-medium sm:text-xs sm:leading-5 ${style.solid} ${
+                              left ? 'rounded-l' : ''
+                            } ${right ? 'rounded-r' : ''} ${faint ? 'opacity-40' : ''} ${
+                              h.tentative ? `${STRIPES} border border-dashed border-white/70` : ''
+                            }`}
+                          >
+                            {text}
+                          </button>
+                        );
+                      });
                     })}
                 {anyMore &&
                   layout!.more.map((n, col) =>

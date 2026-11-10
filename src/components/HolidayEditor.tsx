@@ -5,12 +5,13 @@ import { coveredSeriesIds } from '@/core/calendar/compress';
 import type { Category } from '@/core/calendar/rules';
 import { isRealDate } from '@/core/validation/holidays-query';
 import { api, type ApiStructure, type FullHoliday } from '@/lib/api';
-import { stamp } from '@/lib/format';
+import { stamp, trimNote } from '@/lib/format';
 import { AudienceChips } from './AudienceChips';
 import { ImpactPreview } from './ImpactPreview';
 import { OverlapLine, useOverlap } from './OverlapLine';
 import { Sheet } from './Sheet';
 import { PastNote } from './PastConfirm';
+import { TrimHint } from './TrimHint';
 
 export type EditorTarget =
   | { kind: 'new'; start: string; end: string; initialCategory?: Category; initialTitle?: string }
@@ -117,6 +118,7 @@ export function HolidayEditor({ target, ...rest }: FormProps & { target: EditorT
 
 function HolidayForm({
   structure,
+  offDays = [],
   initial,
   onClose,
   onDone,
@@ -196,7 +198,11 @@ function HolidayForm({
     const r = await request;
     setSaving(false);
     if (r.ok) {
-      return onDone(editing ? 'Updated.' : 'Saved.');
+      // The server trims weekly off days (Thu/Fri) off the ends and says what it saved.
+      const trimmed = (r.data as { trimmed?: { startDate: string; endDate: string } } | null)
+        ?.trimmed;
+      const done = editing ? 'Updated.' : 'Saved.';
+      return onDone(trimmed ? `${done} ${trimNote(trimmed, offDays)}` : done);
     }
     if (r.code === 'PAST_CONFIRM') return setPastMsg(r.message);
     if (r.code === 'OVERLAP' && r.conflicts) {
@@ -295,6 +301,7 @@ function HolidayForm({
           />
         </label>
       </div>
+      <TrimHint start={start} end={end} offDays={offDays} />
       <AudienceChips structure={structure} selected={selected} onChange={setSelected} />
 
       <OverlapLine conflicts={shown} checking={checking} onEdit={onEditExisting} />

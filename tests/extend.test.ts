@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { extendWithAdjacentOffDays } from '@/core/calendar/extend';
+import { barRuns, extendWithAdjacentOffDays, widensOverWeekend } from '@/core/calendar/extend';
 import { addDays, weekdayOf } from '@/core/calendar/hijri';
 import { findOverlaps } from '@/core/calendar/overlap';
 import type { Structure } from '@/core/calendar/types';
@@ -105,5 +105,61 @@ describe('the weekend extension is display only', () => {
       /extend['"]|extendWithAdjacentOffDays/.test(readFileSync(f, 'utf8')),
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('barRuns (faint Thu/Fri runs in a week row)', () => {
+  // Week row columns: Sat Sun Mon Tue Wed Thu Fri = 0..6
+  const T = true;
+  const F = false;
+  test.each([
+    ['whole bar real', [T, T, T, T, T, F, F], 0, 4, [[0, 4, false]]],
+    [
+      'weekend lead-in then holiday',
+      [F, F, T, T, T, F, F],
+      0,
+      4,
+      [
+        [0, 1, true],
+        [2, 4, false],
+      ],
+    ],
+    [
+      'holiday then weekend tail',
+      [T, T, T, F, F, F, F],
+      0,
+      4,
+      [
+        [0, 2, false],
+        [3, 4, true],
+      ],
+    ],
+    [
+      'lead-in and tail',
+      [F, T, T, F, F, F, F],
+      0,
+      4,
+      [
+        [0, 0, true],
+        [1, 2, false],
+        [3, 4, true],
+      ],
+    ],
+    ['only weekend columns of this row', [F, F, F, F, F, F, F], 5, 6, [[5, 6, true]]],
+  ] as const)('%s', (_n, real, from, to, want) => {
+    expect(barRuns([...real], from, to)).toEqual(want);
+  });
+
+  test('study phases are not widened, holiday-like categories are', () => {
+    for (const c of ['EXAM', 'CLASS', 'VIVA']) expect(widensOverWeekend(c)).toBe(false);
+    for (const c of [
+      'HOLIDAY',
+      'MID_BREAK',
+      'UNOFFICIAL_BREAK',
+      'SEMESTER_BREAK',
+      'SUSPENDED_WEEK',
+    ]) {
+      expect(widensOverWeekend(c)).toBe(true);
+    }
   });
 });
