@@ -14,3 +14,12 @@
 body:has(dialog[open]) {
   overflow: hidden;
 }
+
+/* Hide scrollbar for clean horizontal mobile carousels */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

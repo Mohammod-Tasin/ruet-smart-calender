@@ -17,6 +17,7 @@ export const CATEGORIES = [
   'SEMESTER_BREAK',
   'EXAM',
   'CLASS',
+  'VIVA',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 

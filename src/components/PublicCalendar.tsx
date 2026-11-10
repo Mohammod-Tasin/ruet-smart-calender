@@ -2,7 +2,7 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { holidaysByDate, parseMonthKey, shiftMonth, todayInDhaka } from '@/core/calendar/grid';
-import { api, type PublicHoliday } from '@/lib/api';
+import { api } from '@/lib/api';
 import {
   breakDisplaySpan,
   CalendarFilter,
@@ -40,14 +40,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
   const [openDate, setOpenDate] = useState<string | null>(null);
 
   const ym = parseMonthKey(params.get('m')) ? params.get('m')! : today.slice(0, 7);
-
-  const [showEverything, setShowEverything] = useState<boolean>(() => {
-    return params.get('everything') === '1' || params.get('breaks') === '1';
-  });
-
-  useEffect(() => {
-    setShowEverything(params.get('everything') === '1' || params.get('breaks') === '1');
-  }, [params]);
+  const showEverything = params.get('everything') === '1' || params.get('breaks') === '1';
 
   const { structure, failed: structureFailed } = useStructure();
   const { cells, holidays, failed } = useMonthHolidays(ym, offDays);
@@ -69,7 +62,6 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
     const scopeParam = (params.get('scope') ?? '').toUpperCase();
     const deptParam = (params.get('dept') ?? '').toUpperCase();
     const batchParam = params.get('batch') ? Number(params.get('batch')) : null;
-    const everythingParam = params.get('everything') === '1' || params.get('breaks') === '1';
 
     let scope: CalendarScope = 'COMMON';
     let deptId: number | null = null;
@@ -119,7 +111,6 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
   }, [params, structure, showEverything]);
 
   const handleFilterChange = (next: CalendarFilter) => {
-    setShowEverything(next.showEverything);
     const changes: Record<string, string | null> = {};
 
     if (next.scope === 'COMMON') {
@@ -157,16 +148,19 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
 
   useEffect(() => {
     if (!needsAcademicEvents || !gridFrom || !gridTo) {
-      setAcademicBreaks([]);
       return;
     }
     const key = `${gridFrom}:${gridTo}`;
     const cached = breaksCache.get(key);
-    if (cached) {
-      setAcademicBreaks(cached);
-      return;
-    }
     let live = true;
+    if (cached) {
+      queueMicrotask(() => {
+        if (live) setAcademicBreaks(cached);
+      });
+      return () => {
+        live = false;
+      };
+    }
     api<{ breaks: AcademicBreakItem[] }>(`/api/academic-breaks?from=${gridFrom}&to=${gridTo}`).then(
       (r) => {
         if (!r.ok) return;
@@ -181,14 +175,15 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
 
   const visible = useMemo(() => {
     if (!holidays || !structure) return null;
+    const activeBreaks = needsAcademicEvents ? academicBreaks : [];
     const scope = scopeSeriesIds(filter, structure);
     const base = filterHolidays(holidays, structure, filter).map(breakDisplaySpan);
 
-    const mergedBreaks = filterAndMergeBreaks(academicBreaks, base, structure, filter).map(
+    const mergedBreaks = filterAndMergeBreaks(activeBreaks, base, structure, filter).map(
       breakDisplaySpan,
     );
     return mergeSameBreaks([...base, ...mergedBreaks], structure, scope);
-  }, [holidays, structure, filter, academicBreaks]);
+  }, [holidays, structure, filter, academicBreaks, needsAcademicEvents]);
 
   const goto = (key: string) => setParams({ m: key });
   const dayHolidays =
@@ -209,6 +204,7 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
         onPrev={() => goto(shiftMonth(ym, -1))}
         onNext={() => goto(shiftMonth(ym, 1))}
         onToday={() => goto(today.slice(0, 7))}
+        hideNavOnMobile
       />
 
       {/* Modern, friendly calendar filter bar */}
@@ -217,6 +213,9 @@ export function PublicCalendar({ offDays }: { offDays: number[] }) {
         filter={filter}
         onChange={handleFilterChange}
         mySeries={mine}
+        onPrev={() => goto(shiftMonth(ym, -1))}
+        onNext={() => goto(shiftMonth(ym, 1))}
+        onToday={() => goto(today.slice(0, 7))}
       />
 
       {failed || structureFailed ? (

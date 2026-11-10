@@ -59,14 +59,17 @@ export function useMonthHolidays(
   useEffect(() => {
     let live = true;
     loadHolidays(from, to, opts.bust).then(
-      (holidays) => live && setRes({ key, holidays }),
+      (holidays) => {
+        if (!live) return;
+        setRes({ key, holidays });
+        // Warm the cache for prev / next only after the current month has loaded
+        for (const delta of [-1, 1]) {
+          const g = buildMonthGrid(...shift(year, month, delta));
+          loadHolidays(g[0]!.date, g[41]!.date, opts.bust).catch(() => {});
+        }
+      },
       () => live && setRes({ key }),
     );
-    // Warm the cache for prev / next; errors are ignored here and surface when navigating.
-    for (const delta of [-1, 1]) {
-      const g = buildMonthGrid(...shift(year, month, delta));
-      loadHolidays(g[0]!.date, g[41]!.date, opts.bust).catch(() => {});
-    }
     return () => {
       live = false;
     };

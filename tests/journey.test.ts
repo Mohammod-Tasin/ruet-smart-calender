@@ -386,4 +386,30 @@ describe('phase length comes from the structure', () => {
     const j = run([pos('2026-10-24', 4, 'EXAM', 2)], { structure });
     expect(stateOn(j, '2026-10-24')).toMatchObject({ phase: 'EXAM', weekNo: 2, phaseWeeks: weeks });
   });
+
+  test('when exam 5/5 finishes on Saturday, Sunday transitions to semester break', () => {
+    const struct5 = DEFAULT_STRUCTURE.map((b) => (b.phase === 'EXAM' ? { ...b, weeks: 5 } : b));
+    // Week 5 of EXAM starts on Saturday 2026-10-24. E5 is on Saturday 2026-10-24.
+    const j = run([pos('2026-10-24', 4, 'EXAM', 5)], { structure: struct5 });
+
+    // On Saturday (exam day): still EXAM 5/5
+    const sat = stateOn(j, '2026-10-24');
+    expect(sat).toMatchObject({
+      status: 'RUNNING',
+      semesterNo: 4,
+      phase: 'EXAM',
+      weekNo: 5,
+      phaseWeeks: 5,
+    });
+
+    // On Sunday (day after exam 5): enters SEMESTER_BREAK
+    const sun = stateOn(j, '2026-10-25');
+    expect(sun).toMatchObject({
+      status: 'RUNNING',
+      semesterNo: 4,
+      phase: 'SEMESTER_BREAK',
+      weekNo: 1,
+      phaseWeeks: 1,
+    });
+  });
 });

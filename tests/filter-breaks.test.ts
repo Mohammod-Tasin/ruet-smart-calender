@@ -2,12 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Structure } from '@/core/calendar/types';
 import type { PublicHoliday } from '@/lib/api';
 import {
-  appliesToDept,
   breakDisplaySpan,
   filterAndMergeBreaks,
   filterHolidays,
   formatExamTitle,
-  isCommonHoliday,
   mergeSameBreaks,
   scopeSeriesIds,
   type CalendarFilter,
@@ -570,7 +568,7 @@ describe('formatExamTitle and exam merging', () => {
     ]);
   });
 
-  it('removes CLASS items when showEverything is false while keeping exams', () => {
+  it('removes CLASS and VIVA items when showEverything is false while keeping exams', () => {
     const classItem: AcademicBreakItem = {
       id: 'class:101:1:1:2026-10-31',
       title: 'Class week 1',
@@ -586,18 +584,183 @@ describe('formatExamTitle and exam merging', () => {
       weekNo: 1,
       tentative: false,
     };
-    const exam = examItem(101, 10, 'CSE', 2021, 1, '2026-10-31');
-    const withEverything = filterAndMergeBreaks([classItem, exam], [], structure, {
+    const vivaItem: AcademicBreakItem = {
+      id: 'viva:101:1:1:2026-11-07',
+      title: 'Board Viva',
+      category: 'VIVA',
+      startDate: '2026-11-07',
+      endDate: '2026-11-11',
+      seriesId: 101,
+      departmentId: 10,
+      series: 'CSE-21',
+      deptCode: 'CSE',
+      intakeYear: 2021,
+      semesterNo: 1,
+      weekNo: 1,
+      tentative: false,
+    };
+    const exam = examItem(101, 10, 'CSE', 2021, 1, '2026-11-14');
+    const withEverything = filterAndMergeBreaks([classItem, vivaItem, exam], [], structure, {
       scope: 'ALL_DEPTS',
       showEverything: true,
     });
-    expect(withEverything).toHaveLength(2);
+    expect(withEverything).toHaveLength(3);
+    expect(withEverything.map((x) => x.category)).toEqual(['CLASS', 'VIVA', 'EXAM']);
 
-    const withoutEverything = filterAndMergeBreaks([classItem, exam], [], structure, {
+    const withoutEverything = filterAndMergeBreaks([classItem, vivaItem, exam], [], structure, {
       scope: 'ALL_DEPTS',
       showEverything: false,
     });
     expect(withoutEverything).toHaveLength(1);
     expect(withoutEverything[0]!.category).toBe('EXAM');
+  });
+
+  it('merges Board Viva for multiple series into a single strip when showEverything is true', () => {
+    const viva1: AcademicBreakItem = {
+      id: 'viva:101:1:1:2026-11-07',
+      title: 'Board Viva',
+      category: 'VIVA',
+      startDate: '2026-11-07',
+      endDate: '2026-11-11',
+      seriesId: 101,
+      departmentId: 10,
+      series: 'CSE-21',
+      deptCode: 'CSE',
+      intakeYear: 2021,
+      semesterNo: 1,
+      weekNo: 1,
+      tentative: false,
+    };
+    const viva2: AcademicBreakItem = {
+      id: 'viva:102:1:1:2026-11-07',
+      title: 'Board Viva',
+      category: 'VIVA',
+      startDate: '2026-11-07',
+      endDate: '2026-11-11',
+      seriesId: 102,
+      departmentId: 10,
+      series: 'CSE-22',
+      deptCode: 'CSE',
+      intakeYear: 2022,
+      semesterNo: 1,
+      weekNo: 1,
+      tentative: false,
+    };
+    const res = filterAndMergeBreaks([viva1, viva2], [], structure, {
+      scope: 'ALL_DEPTS',
+      showEverything: true,
+    });
+    expect(res).toHaveLength(1);
+    expect(res[0]!.category).toBe('VIVA');
+    expect(res[0]!.title).toBe('Board Viva (Sem 1-1)');
+    expect(res[0]!.label).toBe('CSE-21 · CSE-22');
+  });
+
+  it('shifts exam when it falls on a common holiday, and keeps subsequent exam after at least 5 days', () => {
+    // Common holiday on 2026-10-14 (Wednesday)
+    const holiday: PublicHoliday = {
+      ...commonHoliday,
+      id: 99,
+      startDate: '2026-10-14',
+      endDate: '2026-10-14',
+      label: 'ALL',
+      category: 'HOLIDAY',
+    };
+
+    // E1 is originally scheduled on 2026-10-14 (Wed)
+    // E2 is originally scheduled on 2026-10-20 (Tue, which was 6 days after 10-14)
+    const e1 = examItem(101, 10, 'CSE', 2021, 1, '2026-10-14');
+    const e2 = examItem(101, 10, 'CSE', 2021, 2, '2026-10-20');
+
+    const res = filterAndMergeBreaks([e1, e2], [holiday], structure, {
+      scope: 'SERIES',
+      seriesId: 101,
+      showEverything: true,
+    });
+
+    // E1 should shift from 10-14 to 10-15 (next day)
+    const resE1 = res.find((r) => r.title.includes('E1'));
+    expect(resE1?.startDate).toBe('2026-10-15');
+
+    // E2 should be at least 5 days after E1 (10-15 + 5 = 10-20), so it stays 10-20
+    const resE2 = res.find((r) => r.title.includes('E2'));
+    expect(resE2?.startDate).toBe('2026-10-20');
+  });
+
+  it('pushes next exam when previous exam shifted and left less than 5 days gap', () => {
+    // 2-day Common holiday on 2026-10-14 and 2026-10-15
+    const holiday: PublicHoliday = {
+      ...commonHoliday,
+      id: 99,
+      startDate: '2026-10-14',
+      endDate: '2026-10-15',
+      label: 'ALL',
+      category: 'HOLIDAY',
+    };
+
+    // E1 on 2026-10-14 (Wed), E2 on 2026-10-20 (Tue)
+    const e1 = examItem(101, 10, 'CSE', 2021, 1, '2026-10-14');
+    const e2 = examItem(101, 10, 'CSE', 2021, 2, '2026-10-20');
+
+    const res = filterAndMergeBreaks([e1, e2], [holiday], structure, {
+      scope: 'SERIES',
+      seriesId: 101,
+      showEverything: true,
+    });
+
+    // E1 shifts past 10-14 and 10-15 to 10-16 (Friday)
+    const resE1 = res.find((r) => r.title.includes('E1'));
+    expect(resE1?.startDate).toBe('2026-10-16');
+
+    // E2 was 10-20, but must be at least 5 days after 10-16 -> 10-16 + 5 = 10-21 (Wednesday)
+    const resE2 = res.find((r) => r.title.includes('E2'));
+    expect(resE2?.startDate).toBe('2026-10-21');
+  });
+
+  it('splits class week around common holiday so no class covers the common holiday', () => {
+    // Common holiday on 2026-11-02 (Monday)
+    const holiday: PublicHoliday = {
+      ...commonHoliday,
+      id: 98,
+      startDate: '2026-11-02',
+      endDate: '2026-11-02',
+      label: 'ALL',
+      category: 'HOLIDAY',
+    };
+
+    // Class week 1 runs Saturday 2026-10-31 to Wednesday 2026-11-04
+    const classItem: AcademicBreakItem = {
+      id: 'class:101:1:1:2026-10-31',
+      title: 'Class week 1',
+      category: 'CLASS',
+      startDate: '2026-10-31',
+      endDate: '2026-11-04',
+      seriesId: 101,
+      departmentId: 10,
+      series: 'CSE-21',
+      deptCode: 'CSE',
+      intakeYear: 2021,
+      semesterNo: 1,
+      weekNo: 1,
+      tentative: false,
+    };
+
+    const res = filterAndMergeBreaks([classItem], [holiday], structure, {
+      scope: 'SERIES',
+      seriesId: 101,
+      showEverything: true,
+    });
+
+    // Should be split into 2 segments around Monday 2026-11-02:
+    // Segment 1: Sat 10-31 to Sun 11-01
+    // Segment 2: Tue 11-03 to Wed 11-04
+    expect(res).toHaveLength(2);
+    expect(res[0]?.startDate).toBe('2026-10-31');
+    expect(res[0]?.endDate).toBe('2026-11-01');
+    expect(res[1]?.startDate).toBe('2026-11-03');
+    expect(res[1]?.endDate).toBe('2026-11-04');
+
+    // Neither segment covers 2026-11-02
+    expect(res.some((r) => r.startDate <= '2026-11-02' && '2026-11-02' <= r.endDate)).toBe(false);
   });
 });

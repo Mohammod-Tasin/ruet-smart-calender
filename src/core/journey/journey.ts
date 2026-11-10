@@ -404,6 +404,48 @@ export function stateOn(j: Journey, date: string): JourneyState {
     .slice(i + 1)
     .find((w) => w.status === 'COUNTED' && w.semesterNo > now.semesterNo);
   const reasons = delayReasons(j, now.semesterNo, date);
+
+  // If in the final exam week of the semester and the last exam date has passed,
+  // the series has transitioned to semester break.
+  if (now.status === 'COUNTED' && now.phase === 'EXAM') {
+    const examWeeks = j.weeks.filter(
+      (w) => w.semesterNo === now.semesterNo && w.phase === 'EXAM' && w.status === 'COUNTED',
+    );
+    const lastExamWeek = examWeeks[examWeeks.length - 1];
+    if (lastExamWeek && now.weekStart === lastExamWeek.weekStart) {
+      const lastExamDate = addDays(lastExamWeek.weekStart, Math.max(0, 5 - lastExamWeek.weekNo));
+      if (date > lastExamDate) {
+        const nextBreakMilestone: Milestone | null = nextSem
+          ? {
+              semesterNo: nextSem.semesterNo,
+              phase: 'CLASS',
+              date: nextSem.weekStart,
+              confirmed: nextSem.confirmed,
+            }
+          : j.graduation
+            ? { semesterNo: null, phase: 'GRADUATION', date: j.graduation, confirmed: false }
+            : null;
+
+        return {
+          status: 'RUNNING',
+          semesterNo: now.semesterNo,
+          semesterLabel: semesterLabel(now.semesterNo),
+          phase: 'SEMESTER_BREAK',
+          weekNo: 1,
+          phaseWeeks: 1,
+          onSkippedWeek: false,
+          confirmed: now.confirmed,
+          nextMilestone: nextBreakMilestone,
+          nextSemester: nextSem
+            ? { semesterNo: nextSem.semesterNo, date: nextSem.weekStart, confirmed: nextSem.confirmed }
+            : null,
+          delayWeeks: reasons.reduce((n, r) => n + r.weeks, 0),
+          delayReasons: reasons,
+        };
+      }
+    }
+  }
+
   return {
     status: 'RUNNING',
     semesterNo: now.semesterNo,

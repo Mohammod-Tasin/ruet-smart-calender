@@ -54,6 +54,11 @@ export function HolidayCard({
             Classes
           </span>
         )}
+        {h.category === 'VIVA' && (
+          <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-800 dark:bg-purple-950 dark:text-purple-200">
+            Board Viva
+          </span>
+        )}
         {h.tentative && (
           <span className="rounded border border-dashed border-red-500 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
             Expected date

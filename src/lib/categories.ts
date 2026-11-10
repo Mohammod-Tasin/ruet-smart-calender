@@ -33,6 +33,11 @@ export const CATEGORY_STYLE: Record<Category, { label: string; solid: string; te
     solid: 'bg-emerald-600 text-white dark:bg-emerald-700 dark:text-white',
     text: 'text-emerald-700 dark:text-emerald-300',
   },
+  VIVA: {
+    label: 'Board Viva',
+    solid: 'bg-purple-600 text-white dark:bg-purple-700 dark:text-white',
+    text: 'text-purple-700 dark:text-purple-300',
+  },
   SUSPENDED_WEEK: {
     label: 'Class Suspension',
     solid: 'bg-slate-500 text-white dark:bg-slate-600 dark:text-white',

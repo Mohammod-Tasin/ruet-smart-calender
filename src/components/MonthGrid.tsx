@@ -70,7 +70,7 @@ export function MonthGrid({
 
   return (
     <div>
-      <div className="grid grid-cols-7 text-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
+      <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-zinc-500 sm:text-xs dark:text-zinc-400">
         {WEEKDAYS.map((d) => (
           <div key={d} className="py-1">
             {d}
@@ -109,7 +109,7 @@ export function MonthGrid({
                       } ${c.inMonth ? '' : 'opacity-45'}`}
                     >
                       <span
-                        className={`grid h-6 w-6 place-items-center rounded-full text-xs font-medium sm:text-sm ${
+                        className={`grid h-5 w-5 place-items-center rounded-full text-[11px] font-medium sm:h-6 sm:w-6 sm:text-sm ${
                           isToday ? 'bg-indigo-600 text-white' : ''
                         }`}
                       >
@@ -121,7 +121,7 @@ export function MonthGrid({
               </div>
 
               {/* Bars sit above the day buttons; only the bars themselves take clicks. */}
-              <div className="pointer-events-none relative grid min-h-[4.5rem] auto-rows-[1rem] grid-cols-7 content-start gap-y-0.5 px-0.5 pt-7 pb-1 sm:min-h-24 sm:auto-rows-[1.25rem]">
+              <div className="pointer-events-none relative grid min-h-[4.25rem] auto-rows-[1rem] grid-cols-7 content-start gap-y-0.5 px-0.5 pt-6 pb-1 sm:min-h-24 sm:auto-rows-[1.25rem] sm:pt-7">
                 {layout === null
                   ? wi % 2 === 0 && (
                       <span
