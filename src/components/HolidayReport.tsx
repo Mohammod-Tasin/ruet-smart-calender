@@ -5,14 +5,8 @@ import { CATEGORY_STYLE } from '@/lib/categories';
 import { useReport } from '@/lib/hooks';
 import { rangeText } from '@/lib/journey-ui';
 import { downloadReportPdf } from '@/lib/report-pdf';
+import { PRINT_WIDTH, PrintLayout } from './ReportPrint';
 
-const PRINT_DOT: Record<ReportCategory, string> = {
-  HOLIDAY: '#dc2626',
-  SUSPENDED_WEEK: '#64748b',
-  UNOFFICIAL_BREAK: '#a1a1aa',
-  MID_BREAK: '#ea580c',
-  SEMESTER_BREAK: '#f59e0b',
-};
 const CAT_LABEL: Record<ReportCategory, string> = {
   HOLIDAY: 'Official holidays',
   SUSPENDED_WEEK: 'Class suspensions',
@@ -32,28 +26,14 @@ const details = (i: ReportItem) =>
 
 const dotClass = (c: ReportCategory) => CATEGORY_STYLE[c].solid.split(' ')[0];
 
-function Footer({ r, print }: { r: HolidayReport; print?: boolean }) {
-  // The print layout uses inline hex colours: html2canvas cannot parse Tailwind's lab() colours.
+function Footer({ r }: { r: HolidayReport }) {
   return (
-    <ul
-      className={
-        print ? undefined : 'list-disc space-y-0.5 pl-4 text-xs text-zinc-600 dark:text-zinc-400'
-      }
-      style={
-        print
-          ? { color: '#52525b', fontSize: 11, listStyle: 'none', padding: 0, margin: 0 }
-          : undefined
-      }
-    >
-      <li>
-        {print && '• '}Weekly holidays: {r.weeklyOff.join(' and ')}.
-      </li>
+    <ul className="list-disc space-y-0.5 pl-4 text-xs text-zinc-600 dark:text-zinc-400">
+      <li>Weekly holidays: {r.weeklyOff.join(' and ')}.</li>
       {r.noStatus.length > 0 && (
-        <li>
-          {print && '• '}Series with no status are not included: {r.noStatus.join(', ')}.
-        </li>
+        <li>Series with no status are not included: {r.noStatus.join(', ')}.</li>
       )}
-      <li>{print && '• '}&ldquo;Expected&rdquo; dates depend on moon sighting.</li>
+      <li>&ldquo;Expected&rdquo; dates depend on moon sighting.</li>
     </ul>
   );
 }
@@ -198,7 +178,7 @@ export function NextThreeWeeks({ from }: { from: string }) {
             <div
               ref={printRef}
               style={{
-                width: 718,
+                width: PRINT_WIDTH,
                 background: '#fff',
                 color: '#111',
                 fontFamily: 'system-ui, "Noto Sans Bengali", sans-serif',
@@ -213,102 +193,5 @@ export function NextThreeWeeks({ from }: { from: string }) {
         </>
       )}
     </section>
-  );
-}
-
-function PrintLayout({ r }: { r: HolidayReport }) {
-  const generated = new Date().toLocaleString('en-GB', {
-    timeZone: 'Asia/Dhaka',
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-  const dot = (c: ReportCategory) => (
-    <span
-      style={{
-        display: 'inline-block',
-        width: 9,
-        height: 9,
-        borderRadius: 5,
-        background: PRINT_DOT[c],
-        marginRight: 6,
-        verticalAlign: 'middle',
-      }}
-    />
-  );
-  return (
-    <div>
-      <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>RUET Holiday &amp; Break Report</h1>
-      <p style={{ margin: '4px 0 0' }}>
-        Period: {rangeText(r.from, r.to)} · Generated {generated} (Dhaka)
-      </p>
-      <table
-        className="pdf-avoid"
-        style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}
-      >
-        <thead>
-          <tr style={{ background: '#f4f4f5' }}>
-            <th style={{ textAlign: 'left', padding: 4, fontWeight: 700 }}>At a glance</th>
-            {r.weeks.map((w, i) => (
-              <th key={i} style={{ padding: 4, textAlign: 'center', fontWeight: 700 }}>
-                Week {i + 1}
-                <div style={{ fontWeight: 400, fontSize: 10 }}>{rangeText(w.start, w.end)}</div>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {r.glance.map((g) => (
-            <tr key={g.category} style={{ borderTop: '1px solid #e4e4e7' }}>
-              <td style={{ padding: 4 }}>
-                {dot(g.category)}
-                {CAT_LABEL[g.category]}
-              </td>
-              {g.counts.map((n, i) => (
-                <td key={i} style={{ padding: 4, textAlign: 'center' }}>
-                  {n || '–'}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {r.weeks.map((w, i) => (
-        <div key={i} style={{ marginTop: 16 }}>
-          <h2
-            className="pdf-avoid"
-            data-keep-next="1"
-            style={{
-              fontSize: 14,
-              fontWeight: 700,
-              margin: '0 0 6px',
-              borderBottom: '1px solid #d4d4d8',
-              paddingBottom: 2,
-            }}
-          >
-            Week {i + 1}: {rangeText(w.start, w.end)}
-          </h2>
-          {w.items.length === 0 && <p style={{ color: '#52525b', margin: 0 }}>{EMPTY}</p>}
-          {w.items.map((it) => (
-            <div
-              key={it.key}
-              className="pdf-avoid"
-              style={{ padding: '4px 0', borderBottom: '1px solid #f4f4f5' }}
-            >
-              <div style={{ fontWeight: 600 }}>
-                {dot(it.category)}
-                {it.title}{' '}
-                <span style={{ fontWeight: 400 }}>· {rangeText(it.startDate, it.endDate)}</span>
-              </div>
-              <div style={{ color: '#52525b', fontSize: 11, marginLeft: 15 }}>
-                {details(it).join(' · ')}
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-      <div className="pdf-avoid" style={{ marginTop: 16 }}>
-        <Footer r={r} print />
-      </div>
-    </div>
   );
 }

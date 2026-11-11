@@ -1,5 +1,5 @@
 const SLACK = 16; // px
-const PAGE = { w: 190, h: 273 }; // mm of printable area on A4 with the margins below
+const PAGE = { w: 277, h: 186 }; // mm of printable area on A4 landscape with the margins below
 
 /**
  * html2pdf's own page-break logic splits rows, so we pre-paginate: any `.pdf-avoid` block that
@@ -47,12 +47,13 @@ async function render(el: HTMLElement, fileName: string) {
         scale: 2,
         backgroundColor: '#ffffff',
         useCORS: true,
+        foreignObjectRendering: true,
         // The print layout is fully inline-styled. Dropping the page CSS keeps html2canvas away
         // from Tailwind's lab()/oklch() colours, which it cannot parse.
         onclone: (doc: Document) =>
           doc.querySelectorAll('style, link[rel="stylesheet"]').forEach((n) => n.remove()),
       },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
     })
     .from(el)
     .toPdf();
@@ -62,7 +63,7 @@ async function render(el: HTMLElement, fileName: string) {
   pdf.setTextColor(110);
   for (let i = 1; i <= n; i++) {
     pdf.setPage(i);
-    pdf.text(`Page ${i} of ${n}`, 105, 290, { align: 'center' });
+    pdf.text(`Page ${i} of ${n}`, 148.5, 204, { align: 'center' });
   }
   await worker.save();
 }

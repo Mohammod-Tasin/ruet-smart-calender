@@ -5,31 +5,36 @@ import {
   type ReportInput,
   type ReportSeries,
 } from '@/core/report/build';
+import { addDays, weekdayOf } from '@/core/calendar/hijri';
 import { reportWindows } from '@/core/report/windows';
 
 describe('reportWindows', () => {
   it.each([
-    [
-      '2026-11-11',
-      ['2026-11-11', '2026-11-18'],
-      ['2026-11-19', '2026-11-25'],
-      ['2026-11-26', '2026-12-02'],
-    ],
-    [
-      '2026-12-27',
-      ['2026-12-27', '2027-01-03'],
-      ['2027-01-04', '2027-01-10'],
-      ['2027-01-11', '2027-01-17'],
-    ],
-    [
-      '2028-02-24',
-      ['2028-02-24', '2028-03-02'],
-      ['2028-03-03', '2028-03-09'],
-      ['2028-03-10', '2028-03-16'],
-    ],
-  ])('from %s', (from, a, b, c) => {
+    ['2026-11-11', '2026-11-14', '2026-12-04'], // Wednesday
+    ['2026-11-14', '2026-11-21', '2026-12-11'], // Saturday -> the NEXT Saturday
+    ['2026-11-13', '2026-11-14', '2026-12-04'], // Friday
+    ['2026-11-15', '2026-11-21', '2026-12-11'], // Sunday
+    ['2026-12-27', '2027-01-02', '2027-01-22'], // year rollover
+    ['2028-02-24', '2028-02-26', '2028-03-17'], // leap year
+  ])('from %s: first %s, last day %s', (from, first, last) => {
     const w = reportWindows(from);
-    expect(w.map((x) => [x.start, x.end])).toEqual([a, b, c]);
+    expect(w[0].start).toBe(first);
+    expect(w[2].end).toBe(last);
+    for (const [k, x] of w.entries()) {
+      expect(weekdayOf(x.start)).toBe(6); // Saturday
+      expect(weekdayOf(x.end)).toBe(5); // Friday
+      expect(x.start).toBe(addDays(w[0].start, 7 * k));
+    }
+    expect(w[0].start > from).toBe(true); // the present week is never included
+    expect(addDays(from, 7) >= w[0].start).toBe(true); // ...and week 1 is the very next one
+  });
+
+  it('every weekday of a week gives the same windows, the next Saturday starts a new one', () => {
+    const sat = '2026-11-07';
+    const first = reportWindows(addDays(sat, 1))[0].start; // Sunday 8 Nov -> Sat 14 Nov
+    expect(weekdayOf(first)).toBe(6);
+    for (let k = 1; k <= 6; k++) expect(reportWindows(addDays(sat, k))[0].start).toBe(first);
+    expect(reportWindows(first)[0].start).toBe(addDays(first, 7));
   });
 });
 
@@ -68,10 +73,49 @@ const base: ReportInput = {
   weeklyOff: [4, 5],
 };
 
+const hol = (
+  id: number,
+  title: string,
+  category: string,
+  startDate: string,
+  endDate: string,
+  label: string,
+  extra: { classesOnly?: boolean; tentative?: boolean } = {},
+) => ({
+  id,
+  title,
+  category,
+  startDate,
+  endDate,
+  label,
+  classesOnly: false,
+  tentative: false,
+  ...extra,
+});
+const brk = (
+  category: string,
+  startDate: string,
+  endDate: string,
+  seriesId: number,
+  semesterNo: number,
+) => ({
+  category,
+  startDate,
+  endDate,
+  seriesId,
+  semesterNo,
+});
+
+// D = Wed 11 Nov 2026 -> weeks 14-20 Nov, 21-27 Nov, 28 Nov - 4 Dec.
 describe('buildReport', () => {
-  it('has the glance rows and an empty week', () => {
+  it('has the glance rows and an empty report', () => {
     const r = buildReport(base);
-    expect(r.to).toBe('2026-12-02');
+    expect([r.from, r.to]).toEqual(['2026-11-14', '2026-12-04']);
+    expect(r.weeks.map((w) => [w.start, w.end])).toEqual([
+      ['2026-11-14', '2026-11-20'],
+      ['2026-11-21', '2026-11-27'],
+      ['2026-11-28', '2026-12-04'],
+    ]);
     expect(r.weeks.every((w) => w.items.length === 0)).toBe(true);
     expect(r.glance).toHaveLength(5);
     expect(r.weeklyOff).toEqual(['Thursday', 'Friday']);
@@ -82,107 +126,29 @@ describe('buildReport', () => {
       ...base,
       noStatus: [3],
       holidays: [
-        {
-          id: 1,
-          title: 'Victory Day',
-          category: 'HOLIDAY',
-          classesOnly: false,
-          startDate: '2026-12-01',
-          endDate: '2026-12-01',
-          label: 'ALL',
-          tentative: false,
-        },
-        {
-          id: 2,
-          title: 'Eid',
-          category: 'HOLIDAY',
+        hol(1, 'Victory Day', 'HOLIDAY', '2026-12-01', '2026-12-01', 'ALL'),
+        hol(2, 'Eid', 'HOLIDAY', '2026-11-17', '2026-11-20', 'Faculty of CE', {
           classesOnly: true,
-          startDate: '2026-11-17',
-          endDate: '2026-11-20',
-          label: 'Faculty of CE',
           tentative: true,
-        },
-        {
-          id: 3,
-          title: 'Suspended',
-          category: 'SUSPENDED_WEEK',
-          classesOnly: false,
-          startDate: '2026-11-14',
-          endDate: '2026-11-18',
-          label: 'CSE',
-          tentative: false,
-        },
-        {
-          id: 4,
-          title: 'Gap',
-          category: 'UNOFFICIAL_BREAK',
-          classesOnly: false,
-          startDate: '2026-11-26',
-          endDate: '2026-11-27',
-          label: 'EEE',
-          tentative: false,
-        },
-        {
-          id: 5,
-          title: 'ignored exam',
-          category: 'EXAM',
-          classesOnly: false,
-          startDate: '2026-11-12',
-          endDate: '2026-11-12',
-          label: 'ALL',
-          tentative: false,
-        },
+        }),
+        hol(3, 'Suspended', 'SUSPENDED_WEEK', '2026-11-14', '2026-11-18', 'CSE'),
+        hol(4, 'Gap', 'UNOFFICIAL_BREAK', '2026-11-26', '2026-11-27', 'EEE'),
+        hol(5, 'ignored exam', 'EXAM', '2026-11-15', '2026-11-15', 'ALL'),
+        hol(6, 'before the report', 'HOLIDAY', '2026-11-12', '2026-11-13', 'ALL'),
       ],
       breaks: [
-        {
-          category: 'MID_BREAK',
-          startDate: '2026-11-19',
-          endDate: '2026-11-27',
-          seriesId: 1,
-          semesterNo: 4,
-        },
-        {
-          category: 'MID_BREAK',
-          startDate: '2026-11-19',
-          endDate: '2026-11-27',
-          seriesId: 2,
-          semesterNo: 4,
-        },
-        {
-          category: 'SEMESTER_BREAK',
-          startDate: '2026-11-12',
-          endDate: '2026-11-20',
-          seriesId: 4,
-          semesterNo: 2,
-        },
-        {
-          category: 'SEMESTER_BREAK',
-          startDate: '2026-11-12',
-          endDate: '2026-11-20',
-          seriesId: 5,
-          semesterNo: 2,
-        },
-        {
-          category: 'SEMESTER_BREAK',
-          startDate: '2026-11-12',
-          endDate: '2026-11-20',
-          seriesId: 6,
-          semesterNo: 2,
-        },
-        {
-          category: 'CLASS',
-          startDate: '2026-11-12',
-          endDate: '2026-11-13',
-          seriesId: 1,
-          semesterNo: 1,
-        },
+        brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 4, 2),
+        brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 5, 2),
+        brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 6, 2),
+        brk('MID_BREAK', '2026-11-19', '2026-11-27', 1, 4),
+        brk('MID_BREAK', '2026-11-19', '2026-11-27', 2, 4),
+        brk('CLASS', '2026-11-15', '2026-11-16', 1, 1),
       ],
     });
     const titles = r.weeks.map((w) => w.items.map((i) => i.title));
-    expect(titles[0]).toEqual(['Semester break', 'Suspended', 'Eid']);
-    // Eid (17-20 Nov) crosses weeks 1 and 2; mid break 19-27 Nov crosses 2 and 3.
-    expect(titles[1]).toEqual(['Semester break', 'Eid', 'Mid-term break']);
-    expect(titles[2]).toEqual(['Mid-term break', 'Gap', 'Victory Day']);
+    expect(titles[0]).toEqual(['Semester break', 'Suspended', 'Eid', 'Mid-term break']);
+    expect(titles[1]).toEqual(['Mid-term break', 'Gap']); // mid-term break crosses weeks 1 and 2
+    expect(titles[2]).toEqual(['Victory Day']);
     const eid = r.weeks[0]!.items.find((i) => i.title === 'Eid')!;
     expect([eid.startDate, eid.endDate, eid.expected, eid.flags]).toEqual([
       '2026-11-17',
@@ -190,7 +156,7 @@ describe('buildReport', () => {
       true,
       ['Classes off · offices open'],
     ]);
-    expect(r.weeks[2]!.items.find((i) => i.title === 'Victory Day')!.who).toBe('Everyone');
+    expect(r.weeks[2]!.items[0]!.who).toBe('Everyone');
     const sem = r.weeks[0]!.items[0]!;
     expect([sem.who, sem.semesters, sem.seriesCount, sem.inclWeekend]).toEqual([
       'All Batch 2024 departments',
@@ -198,13 +164,13 @@ describe('buildReport', () => {
       3,
       true,
     ]);
-    expect(r.weeks[1]!.items.find((i) => i.title === 'Mid-term break')!.who).toBe('CSE-23, EEE-23');
+    expect(r.weeks[1]!.items[0]!.who).toBe('CSE-23, EEE-23');
     expect(r.glance.map((g) => g.counts)).toEqual([
-      [1, 1, 1],
+      [1, 0, 1],
       [1, 0, 0],
-      [0, 0, 1],
-      [0, 2, 2],
-      [3, 3, 0],
+      [0, 1, 0],
+      [2, 2, 0],
+      [3, 0, 0],
     ]);
     expect(r.noStatus).toEqual(['ME-23']);
   });
@@ -213,27 +179,9 @@ describe('buildReport', () => {
     const r = buildReport({
       ...base,
       breaks: [
-        {
-          category: 'MID_BREAK',
-          startDate: '2026-11-12',
-          endDate: '2026-11-20',
-          seriesId: 1,
-          semesterNo: 4,
-        },
-        {
-          category: 'MID_BREAK',
-          startDate: '2026-11-12',
-          endDate: '2026-11-20',
-          seriesId: 4,
-          semesterNo: 2,
-        },
-        {
-          category: 'MID_BREAK',
-          startDate: '2026-11-14',
-          endDate: '2026-11-18',
-          seriesId: 2,
-          semesterNo: 4,
-        },
+        brk('MID_BREAK', '2026-11-14', '2026-11-20', 1, 4),
+        brk('MID_BREAK', '2026-11-14', '2026-11-20', 4, 2),
+        brk('MID_BREAK', '2026-11-15', '2026-11-18', 2, 4),
       ],
     });
     const items = r.weeks[0]!.items;

@@ -1,4 +1,4 @@
-import { addDays, weekdayOf } from '@/core/calendar/hijri';
+import { weekdayOf } from '@/core/calendar/hijri';
 import { reportWindows, type ReportWindow } from './windows';
 
 export const REPORT_CATEGORIES = [
@@ -55,6 +55,8 @@ export interface ReportItem {
   semesters?: string;
   /** Breaks only: how many series. */
   seriesCount?: number;
+  /** Breaks only: which series. */
+  seriesIds?: number[];
 }
 
 export interface ReportWeek extends ReportWindow {
@@ -68,6 +70,9 @@ export interface HolidayReport {
   /** Per category: count per week (items for holidays, series for breaks). */
   glance: { category: ReportCategory; counts: [number, number, number] }[];
   weeklyOff: string[]; // ["Thursday", "Friday"]
+  weeklyOffDays: number[]; // JS weekdays
+  /** Active series (lets a layout group breaks by batch). */
+  series: ReportSeries[];
   noStatus: string[]; // series labels with no status
 }
 
@@ -159,6 +164,7 @@ export function buildReport(input: ReportInput): HolidayReport {
       inclWeekend: flagged.has(weekdayOf(first.startDate)) || flagged.has(weekdayOf(first.endDate)),
       semesters: sems.map(semLabel).join(', '),
       seriesCount: ids.length,
+      seriesIds: ids,
     };
   });
 
@@ -184,11 +190,13 @@ export function buildReport(input: ReportInput): HolidayReport {
 
   const byId = new Map(input.series.map((s) => [s.id, s.label]));
   return {
-    from: input.from,
-    to: addDays(input.from, 21),
+    from: windows[0]!.start,
+    to: windows[2]!.end,
     weeks,
     glance,
     weeklyOff: [...input.weeklyOff].sort().map((d) => DAY_NAMES[d]!),
+    weeklyOffDays: [...input.weeklyOff].sort(),
+    series: input.series,
     noStatus: input.noStatus
       .map((id) => byId.get(id))
       .filter((x): x is string => !!x)
