@@ -1,24 +1,10 @@
 import { addDays, weekdayOf } from '@/core/calendar/hijri';
-import { layoutWeek, type Bar, type BarItem } from '@/core/calendar/lanes';
 import { MONTHS_SHORT } from '@/core/calendar/months';
 import type { HolidayReport, ReportCategory, ReportItem, ReportSeries } from './build';
 
-// The data behind the visual PDF: a calendar grid of full Sat-Fri weeks with batch-grouped bars,
-// and a few plain sentences per week. Pure; the React layout only draws it.
+// The data behind the PDF: a per-week summary of who is off, then plain sentences per week.
+// Pure; the React layout only draws it.
 
-export interface PdfBar extends BarItem {
-  /** "<who> · <type>". */
-  text: string;
-  /** Shorter label (no department names) for when `text` does not fit the bar. */
-  alt?: string;
-  category: ReportCategory;
-  expected: boolean;
-}
-export interface PdfRow {
-  dates: string[]; // 7, Saturday first
-  bars: Bar<PdfBar>[];
-  lanes: number;
-}
 export interface PdfEntry {
   category: ReportCategory;
   text: string;
@@ -29,19 +15,13 @@ export interface PdfEntry {
 }
 export interface PdfSummaryLine {
   week: string; // "Week 1 · 14–20 Nov"
-  parts: { category: ReportCategory; text: string }[];
+  /** One line per type that exists in the week: "Mid-term break" -> "Batch 2021 (ARCH, BECM), CME-22". */
+  parts: { category: ReportCategory; label: string; who: string }[];
 }
 export interface PdfModel {
   title: string;
-  from: string;
-  to: string;
-  summary: { title: string; lines: PdfSummaryLine[] };
-  rows: PdfRow[];
-  /** Bar colours that actually appear on the grid (for the legend). */
-  types: ReportCategory[];
+  summary: PdfSummaryLine[];
   weeks: { heading: string; entries: PdfEntry[] }[];
-  weeklyOffDays: number[];
-  weeklyOff: string;
   noStatus: string[];
 }
 
@@ -97,45 +77,11 @@ export function groupByBatch(ids: number[], series: ReportSeries[]): Batch[] {
     });
 }
 
-const whoOf = (b: Batch) => (b.single ? b.name : `${b.name} · ${b.codes.join(', ')}`);
-
 /** First day after `end` that is not a weekly holiday. */
 function firstDayBack(end: string, off: number[]): string {
   let d = addDays(end, 1);
   while (off.includes(weekdayOf(d))) d = addDays(d, 1);
   return d;
-}
-
-function barsOf(items: ReportItem[], series: ReportSeries[]): PdfBar[] {
-  const out: PdfBar[] = [];
-  for (const i of items) {
-    if (i.seriesIds) {
-      const type = BREAK_NAME[i.category]!;
-      for (const b of groupByBatch(i.seriesIds, series)) {
-        out.push({
-          id: `${i.key}|${b.year}`,
-          startDate: i.startDate,
-          endDate: i.endDate,
-          category: i.category,
-          expected: false,
-          text: `${whoOf(b)} · ${type}`,
-          alt: b.single ? undefined : `${b.name} · ${type}`,
-        });
-      }
-    } else {
-      // Holidays, suspensions, unofficial breaks: "<who> · <title>"; the title is as stored.
-      out.push({
-        id: i.key,
-        startDate: i.startDate,
-        endDate: i.endDate,
-        category: i.category,
-        expected: i.expected,
-        text: `${i.who} · ${i.title}`,
-        alt: i.title,
-      });
-    }
-  }
-  return out;
 }
 
 function entriesOf(
@@ -185,69 +131,62 @@ function weekShort(a: string, b: string): string {
     : `${dom(a)} ${mon(a)} – ${dom(b)} ${mon(b)}`;
 }
 
-/** Per week: series counts per type (a series counts once per type), holiday titles. */
-function summaryOf(r: HolidayReport): PdfModel['summary'] {
-  const count = (items: ReportItem[], c: ReportCategory) => {
-    const ids = new Set<number>();
-    let events = 0;
-    for (const i of items) {
-      if (i.category !== c) continue;
-      events++;
-      for (const id of i.seriesIds ?? i.covered ?? []) ids.add(id);
-    }
-    return ids.size || events; // no series info: fall back to the number of items
-  };
-  const lines = r.weeks.map((w, k): PdfSummaryLine => {
+const SUMMARY_TYPES = [
+  ['MID_BREAK', 'Mid-term break'],
+  ['SEMESTER_BREAK', 'Semester break'],
+  ['SUSPENDED_WEEK', 'Class suspension'],
+  ['UNOFFICIAL_BREAK', 'Unofficial break'],
+] as const;
+
+/** "Batch 2021 (ARCH, BECM), CME-22": by batch (oldest first), departments A-Z, a lone series by name. */
+export function whoText(ids: number[], series: ReportSeries[]): string {
+  if (ids.length > 0 && series.every((s) => ids.includes(s.id))) return 'Everyone';
+  return groupByBatch(ids, series)
+    .sort((a, b) => a.year - b.year)
+    .map((b) =>
+      b.single
+        ? b.name
+        : `${b.name} (${[...b.codes].sort((x, y) => x.localeCompare(y)).join(', ')})`,
+    )
+    .join(', ');
+}
+
+/** Per week and type: who is off. A series is listed if it has any off day of that type in the week. */
+function summaryOf(r: HolidayReport): PdfSummaryLine[] {
+  return r.weeks.map((w, k): PdfSummaryLine => {
     const parts: PdfSummaryLine['parts'] = [];
-    for (const c of [
-      'MID_BREAK',
-      'SEMESTER_BREAK',
-      'SUSPENDED_WEEK',
-      'UNOFFICIAL_BREAK',
-    ] as const) {
-      const n = count(w.items, c);
-      if (n > 0)
-        parts.push({
-          category: c,
-          text: `${BREAK_NAME[c] ?? (c === 'SUSPENDED_WEEK' ? 'Class suspension' : 'Unofficial break')} ${n}`,
-        });
+    for (const [category, label] of SUMMARY_TYPES) {
+      const items = w.items.filter((i) => i.category === category);
+      if (items.length === 0) continue;
+      const ids = [...new Set(items.flatMap((i) => i.seriesIds ?? i.covered ?? []))];
+      parts.push({
+        category,
+        label,
+        who: whoText(ids, r.series) || [...new Set(items.map((i) => i.who))].join(', '),
+      });
     }
-    const holidays = [
-      ...new Set(w.items.filter((i) => i.category === 'HOLIDAY').map((i) => i.title)),
-    ];
-    if (holidays.length)
-      parts.push({ category: 'HOLIDAY', text: `Holiday: ${holidays.join(', ')}` });
+    const holidays = w.items.filter((i) => i.category === 'HOLIDAY');
+    if (holidays.length) {
+      parts.push({
+        category: 'HOLIDAY',
+        label: 'Holiday',
+        who: [...new Map(holidays.map((i) => [i.title, `${i.title} (${i.who})`])).values()].join(
+          ', ',
+        ),
+      });
+    }
     return { week: `Week ${k + 1} · ${weekShort(w.start, w.end)}`, parts };
   });
-  return { title: `Next 3 weeks · ${weekShort(r.from, r.to)}`, lines };
 }
 
 export function buildPdfModel(r: HolidayReport): PdfModel {
-  const all = r.weeks.flatMap((w) => w.items);
-  const uniq = [...new Map(all.map((i) => [i.key, i])).values()];
-  const bars = barsOf(uniq, r.series);
-  // Exactly the three report weeks (Saturday to Friday).
-  const rows: PdfRow[] = r.weeks.map((w) => {
-    const dates = Array.from({ length: 7 }, (_, k) => addDays(w.start, k));
-    const l = layoutWeek(dates, bars);
-    return { dates, bars: l.bars, lanes: l.lanes };
-  });
-  const seen = new Set(rows.flatMap((x) => x.bars.map((b) => b.item.category)));
   return {
     title: `RUET Holidays & Breaks · ${longRange(r.from, r.to)}`,
-    from: r.from,
-    to: r.to,
     summary: summaryOf(r),
-    rows,
-    types: (
-      ['HOLIDAY', 'MID_BREAK', 'SEMESTER_BREAK', 'SUSPENDED_WEEK', 'UNOFFICIAL_BREAK'] as const
-    ).filter((c) => seen.has(c)),
     weeks: r.weeks.map((w, k) => ({
       heading: `Week ${k + 1} · ${rangeWd(w.start, w.end)}`,
       entries: entriesOf(w.items, w, r.series, r.weeklyOffDays),
     })),
-    weeklyOffDays: r.weeklyOffDays,
-    weeklyOff: r.weeklyOff.join(' and '),
     noStatus: r.noStatus,
   };
 }

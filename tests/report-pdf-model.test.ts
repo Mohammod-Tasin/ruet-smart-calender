@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { weekdayOf } from '@/core/calendar/hijri';
 import { buildReport, type ReportInput, type ReportSeries } from '@/core/report/build';
-import { buildPdfModel, dayWd, groupByBatch, longRange, rangeWd } from '@/core/report/pdf-model';
+import {
+  buildPdfModel,
+  dayWd,
+  groupByBatch,
+  longRange,
+  rangeWd,
+  whoText,
+} from '@/core/report/pdf-model';
 
 const mk = (id: number, dept: number, code: string, year: number): ReportSeries => ({
   id,
@@ -103,50 +109,32 @@ describe('buildPdfModel', () => {
   });
   const m = buildPdfModel(r);
 
-  it('has the title and exactly 3 Saturday-Friday rows', () => {
+  it('has the title', () => {
     expect(m.title).toBe('RUET Holidays & Breaks · 14 Nov – 4 Dec 2026');
-    expect(m.rows).toHaveLength(3);
-    expect(m.rows[0]!.dates[0]).toBe('2026-11-14');
-    expect(m.rows[2]!.dates[6]).toBe('2026-12-04');
-    for (const row of m.rows) expect(weekdayOf(row.dates[0]!)).toBe(6);
   });
 
-  it('bar labels are "<who> · <type>" with a shorter fallback', () => {
-    const bars = m.rows.flatMap((x) => x.bars.map((b) => b.item));
-    const by = (text: string) => bars.find((b) => b.text === text);
-    expect(by('Batch 2024 · CSE, EEE, ME · Semester break')!.alt).toBe(
-      'Batch 2024 · Semester break',
-    );
-    expect(by('CSE-23 · Mid-term break')!.alt).toBeUndefined(); // a single series has nothing to drop
-    expect(by('CSE-24 · Mid-term break')).toBeDefined();
-    expect(by('Everyone · Victory Day')!.alt).toBe('Victory Day');
-    expect(by('CSE · Gap')).toBeDefined();
-    expect(by('EEE · Short')).toBeDefined();
-  });
-
-  it('legend lists only the types that appear', () => {
-    expect(m.types).toEqual([
-      'HOLIDAY',
-      'MID_BREAK',
-      'SEMESTER_BREAK',
-      'SUSPENDED_WEEK',
-      'UNOFFICIAL_BREAK',
+  it('summary lists who is off per week and type, no dates', () => {
+    expect(m.summary.map((l) => [l.week, l.parts.map((p) => [p.label, p.who])])).toEqual([
+      [
+        'Week 1 · 14–20 Nov',
+        [
+          ['Mid-term break', 'CSE-23, CSE-24'],
+          ['Semester break', 'Batch 2024 (CSE, EEE, ME)'],
+        ],
+      ],
+      [
+        'Week 2 · 21–27 Nov',
+        [
+          ['Mid-term break', 'CSE-23, CSE-24'],
+          ['Class suspension', 'EEE-23, EEE-24'],
+          ['Unofficial break', 'CSE-23, CSE-24'],
+        ],
+      ],
+      ['Week 3 · 28 Nov – 4 Dec', [['Holiday', 'Victory Day (Everyone)']]],
     ]);
-    const e = buildPdfModel(
-      buildReport({ ...base, breaks: [brk('MID_BREAK', '2026-11-19', '2026-11-20', 1, 4)] }),
-    );
-    expect(e.types).toEqual(['MID_BREAK']);
-  });
-
-  it('summary counts series per type per week, holidays by title, empty weeks say so', () => {
-    expect(m.summary.title).toBe('Next 3 weeks · 14 Nov – 4 Dec');
-    expect(m.summary.lines.map((l) => [l.week, l.parts.map((p) => p.text)])).toEqual([
-      ['Week 1 · 14–20 Nov', ['Mid-term break 2', 'Semester break 3']],
-      ['Week 2 · 21–27 Nov', ['Mid-term break 2', 'Class suspension 2', 'Unofficial break 2']],
-      ['Week 3 · 28 Nov – 4 Dec', ['Holiday: Victory Day']],
-    ]);
+    expect(m.summary[0]!.parts.map((p) => p.category)).toEqual(['MID_BREAK', 'SEMESTER_BREAK']);
     const e = buildPdfModel(buildReport(base));
-    expect(e.summary.lines.every((l) => l.parts.length === 0)).toBe(true);
+    expect(e.summary.every((l) => l.parts.length === 0)).toBe(true);
   });
 
   it('writes one plain sentence per break per week, with departments and the return day', () => {
@@ -182,10 +170,19 @@ describe('buildPdfModel', () => {
     ]);
   });
 
-  it('an empty report has no entries, no bars and no legend types', () => {
+  it('an empty report has no entries', () => {
     const e = buildPdfModel(buildReport(base));
     expect(e.weeks.every((w) => w.entries.length === 0)).toBe(true);
-    expect(e.types).toEqual([]);
-    expect(e.rows.every((x) => x.bars.length === 0)).toBe(true);
+  });
+});
+
+describe('whoText', () => {
+  it('groups by batch (oldest first), departments A-Z, a lone series by name', () => {
+    // series: CSE-23, EEE-23, CSE-24, EEE-24, ME-24
+    expect(whoText([5, 6, 4, 1], series)).toBe('CSE-23, Batch 2024 (CSE, EEE, ME)');
+    expect(whoText([2, 1], series)).toBe('Batch 2023 (CSE, EEE)');
+  });
+  it('says Everyone when every active series is off', () => {
+    expect(whoText([1, 2, 4, 5, 6], series)).toBe('Everyone');
   });
 });
