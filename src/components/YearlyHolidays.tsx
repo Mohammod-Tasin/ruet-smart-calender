@@ -15,6 +15,7 @@ import { useStructure } from '@/lib/hooks';
 import { HIJRI_MONTHS, ruleName, ruleSummary, WEEKDAYS_EN } from '@/lib/rule-summary';
 import { AudiencePicker } from './AudiencePicker';
 import { hasChange, ImpactGroups, ImpactPreview, useShiftConfirm } from './ImpactPreview';
+import { PastNote } from './PastConfirm';
 import { Sheet } from './Sheet';
 import { useToast } from './Toast';
 
@@ -455,6 +456,13 @@ function QuickVariableRuleForm({
   const [end, setEnd] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when the server asked for "Fix a past holiday"; the next Save sends confirmPast. It only
+  // holds for the dates it was asked about.
+  const [pastAsk, setPastAsk] = useState<{ message: string; sig: string } | null>(null);
+  const sig = `${start}|${end}`;
+  const pastMsg = pastAsk?.sig === sig ? pastAsk.message : null;
+  // The rule is created first and the dates second; a retry must not create the rule twice.
+  const pendingRule = useRef<number | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -473,29 +481,37 @@ function QuickVariableRuleForm({
         : 7;
 
     setSaving(true);
-    const cr = await api<{ ruleId: number }>('/api/admin/holiday-rules', {
-      method: 'POST',
-      body: {
-        title: title.trim(),
-        category: 'HOLIDAY',
-        classesOnly: false,
-        audience: [{ scopeType: 'ALL', scopeId: null }],
-        effectiveFromYear: year,
-        params: { kind: 'MANUAL_YEARLY', defaultLengthDays: len },
-      },
-    });
-    if (!cr.ok) {
-      setSaving(false);
-      return setError(cr.message);
+    let ruleId = pendingRule.current;
+    if (ruleId === null) {
+      const cr = await api<{ ruleId: number }>('/api/admin/holiday-rules', {
+        method: 'POST',
+        body: {
+          title: title.trim(),
+          category: 'HOLIDAY',
+          classesOnly: false,
+          audience: [{ scopeType: 'ALL', scopeId: null }],
+          effectiveFromYear: year,
+          params: { kind: 'MANUAL_YEARLY', defaultLengthDays: len },
+        },
+      });
+      if (!cr.ok) {
+        setSaving(false);
+        return setError(cr.message);
+      }
+      ruleId = pendingRule.current = cr.data.ruleId;
     }
 
     if (start && end) {
-      const or = await api(`/api/admin/holiday-rules/${cr.data.ruleId}/overrides`, {
+      const or = await api(`/api/admin/holiday-rules/${ruleId}/overrides`, {
         method: 'PUT',
-        body: { year, startDate: start, endDate: end, confirmPast: true },
+        body: { year, startDate: start, endDate: end, confirmPast: pastMsg ? true : undefined },
       });
       setSaving(false);
-      if (!or.ok) return setError(or.message);
+      if (!or.ok) {
+        if (or.code === 'PAST_CONFIRM') return setPastAsk({ message: or.message, sig });
+        return setError(or.message);
+      }
+      pendingRule.current = null;
       return onSaved(`Added "${title.trim()}" with ${year} dates.`);
     }
 
@@ -567,8 +583,10 @@ function QuickVariableRuleForm({
           </p>
         )}
 
+        {pastMsg && <PastNote message={pastMsg} />}
+
         <FormButtons
-          label={saving ? 'Saving…' : 'Add Variable Holiday'}
+          label={saving ? 'Saving…' : pastMsg ? 'Fix a past holiday' : 'Add Variable Holiday'}
           onClose={onClose}
           disabled={saving}
         />
@@ -1043,7 +1061,9 @@ function RuleForm({
             value={kind}
             onChange={(e) => setKind(e.target.value as RuleKind)}
           >
-            <option value="GREGORIAN_FIXED">a. Yearly Fixed (same date every year, e.g. 21 Feb)</option>
+            <option value="GREGORIAN_FIXED">
+              a. Yearly Fixed (same date every year, e.g. 21 Feb)
+            </option>
             <option value="MANUAL_YEARLY">
               b. Yearly Variable (admin sets start &amp; end dates each year)
             </option>
@@ -1188,7 +1208,9 @@ function RuleForm({
           <AudiencePicker structure={structure} selected={selected} onChange={setSelected} />
         ) : (
           <div className="flex items-center justify-between rounded-md bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
-            <span>Applies to: <strong>All Departments &amp; Series (Common Holiday)</strong></span>
+            <span>
+              Applies to: <strong>All Departments &amp; Series (Common Holiday)</strong>
+            </span>
             <button
               type="button"
               onClick={() => setShowAdvancedAudience(true)}
@@ -1260,13 +1282,10 @@ function YearDatesForm({
     let failed = 0;
     for (const r of filled) {
       const x = get(r.id);
-      const res = await api(
-        `/api/admin/holiday-rules/${r.id}/overrides`,
-        {
-          method: 'PUT',
-          body: { year, startDate: x.start, endDate: x.end },
-        },
-      );
+      const res = await api(`/api/admin/holiday-rules/${r.id}/overrides`, {
+        method: 'PUT',
+        body: { year, startDate: x.start, endDate: x.end },
+      });
       if (!res.ok) {
         failed++;
         toast(`${ruleName(r)}: ${res.message}`, 'error');
@@ -1274,8 +1293,7 @@ function YearDatesForm({
     }
     setSaving(false);
     const saved = filled.length - failed;
-    if (saved > 0)
-      toast(`Saved ${saved} ${saved === 1 ? 'holiday' : 'holidays'}.`);
+    if (saved > 0) toast(`Saved ${saved} ${saved === 1 ? 'holiday' : 'holidays'}.`);
     if (failed === 0) onSaved();
   }
 

@@ -317,6 +317,9 @@ HIJRI_BD_DAY_OFFSET=1  # added to the Saudi (umalqura) Hijri date; Bangladesh si
 - Git flow: never commit on local `main`. Always `git checkout main && git pull`, then branch.
   PRs are squash-merged, so after a squash merge delete the feature branch (remote and local) and
   re-sync `main` (`git checkout main && git pull`). Never merge `origin/main` into an old feature branch.
+- Never delete a branch (local or remote) until you have verified on GitHub that its PR is merged:
+  the branch's commit, or an equivalent squash commit, must be on `origin/main`
+  (`git fetch && git log origin/main`, or compare trees with `git diff <branch> origin/main`).
 
 ## 11. Phases
 
