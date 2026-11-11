@@ -125,7 +125,7 @@ function entriesOf(
 }
 
 /** "14–20 Nov" or "28 Nov – 4 Dec" */
-function weekShort(a: string, b: string): string {
+export function weekShort(a: string, b: string): string {
   return a.slice(0, 7) === b.slice(0, 7)
     ? `${dom(a)}–${dom(b)} ${mon(b)}`
     : `${dom(a)} ${mon(a)} – ${dom(b)} ${mon(b)}`;

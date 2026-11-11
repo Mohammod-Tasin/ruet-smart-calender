@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { buildMonthGrid, parseMonthKey, type GridCell } from '@/core/calendar/grid';
 import { api, loadHolidays, loadStructure, type ApiStructure, type PublicHoliday } from './api';
-import type { HolidayReport } from '@/core/report/build';
 import type { StatusResponse } from './journey-ui';
 
 export function useStructure(): { structure: ApiStructure | null; failed: boolean } {
@@ -83,23 +82,4 @@ export function useMonthHolidays(
 function shift(year: number, month: number, delta: number): [number, number] {
   const t = new Date(Date.UTC(year, month - 1 + delta, 1));
   return [t.getUTCFullYear(), t.getUTCMonth() + 1];
-}
-
-/** The 3-week holiday & break report starting on `from`. */
-export function useReport(from: string, version = 0) {
-  const key = `${from}|${version}`;
-  const [res, setRes] = useState<{ key: string; data?: HolidayReport; error?: string } | null>(
-    null,
-  );
-  useEffect(() => {
-    let live = true;
-    api<HolidayReport>(`/api/report/holidays?from=${from}`).then(
-      (r) => live && setRes(r.ok ? { key, data: r.data } : { key, error: r.message }),
-    );
-    return () => {
-      live = false;
-    };
-  }, [key, from]);
-  const current = res?.key === key ? res : null;
-  return { data: current?.data, error: current?.error, loading: !current };
 }
