@@ -22,7 +22,11 @@ const COLOR: Record<ReportCategory, { bg: string; fg: string; label: string }> =
 const DAYS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const GREY = '#52525b';
-const CELL_W = (PRINT_WIDTH - 2) / 7;
+// Equal side padding keeps the borders off the page edge (the PDF image clips ~2px on the right).
+const SIDE = 6;
+// Measured: html2canvas draws the content ~2px too far right, so the left padding is smaller.
+const SHIFT = 2;
+const CELL_W = (PRINT_WIDTH - 2 * SIDE - 2) / 7;
 
 let ctx: CanvasRenderingContext2D | null | undefined;
 /** Text width in px, measured with the same font as the bars (estimate if no canvas). */
@@ -181,7 +185,7 @@ export function PrintLayout({ r }: { r: HolidayReport }) {
     verticalAlign: 'middle',
   };
   return (
-    <div>
+    <div style={{ padding: `0 ${SIDE + SHIFT}px 0 ${SIDE - SHIFT}px` }}>
       {/* Page 1: the calendar */}
       <div className="pdf-avoid" style={{ height: PAGE_H - 8, overflow: 'hidden' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, height: TITLE_H }}>{m.title}</h1>
