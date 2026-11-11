@@ -314,6 +314,9 @@ HIJRI_BD_DAY_OFFSET=1  # added to the Saudi (umalqura) Hijri date; Bangladesh si
 - Explain what you did at the end of each phase in simple terms; the
   developer is learning, so mention _why_ for non-obvious choices.
 - Commit with clear messages. Never commit secrets.
+- Git flow: never commit on local `main`. Always `git checkout main && git pull`, then branch.
+  PRs are squash-merged, so after a squash merge delete the feature branch (remote and local) and
+  re-sync `main` (`git checkout main && git pull`). Never merge `origin/main` into an old feature branch.
 
 ## 11. Phases
 

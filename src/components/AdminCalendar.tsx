@@ -24,14 +24,15 @@ import { HolidayEditor, type EditorTarget } from './HolidayEditor';
 import { MonthGrid } from './MonthGrid';
 import { MonthHeader } from './MonthHeader';
 import { OccurrenceSheet } from './OccurrenceSheet';
+import { OverlapCard } from './OverlapLine';
+import { PastConfirm, PastNote } from './PastConfirm';
 import { Sheet } from './Sheet';
 import { useToast } from './Toast';
 import { field, primary, small } from './ui';
 
 export const yearlyHref = (year: number) => `/admin?tab=settings&year=${year}`;
 
-const isCommonHoliday = (h: PublicHoliday) =>
-  h.label === 'ALL' && h.category === 'HOLIDAY';
+const isCommonHoliday = (h: PublicHoliday) => h.label === 'ALL' && h.category === 'HOLIDAY';
 
 type Dialog =
   | { kind: 'day'; date: string; endDate?: string; only?: number }
@@ -61,6 +62,13 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
   const [historyOf, setHistoryOf] = useState<{ id: number; title: string } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [deleted, setDeleted] = useState<FullHoliday[]>([]);
+  // The server asked for the "Fix a past holiday" confirm for this delete / restore.
+  const [past, setPast] = useState<{
+    id: number;
+    kind: 'delete' | 'restore';
+    message: string;
+    title: string;
+  } | null>(null);
 
   // Initial calendar view: ONLY Common Holidays
   const [viewMode, setViewMode] = useState<ViewMode>('common');
@@ -146,31 +154,38 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
     setDialog({ kind: 'day', date, endDate: date, only: Number(holidayId) });
   };
 
-  async function removeOneOff(h: { id: number; title: string }) {
+  async function removeOneOff(h: { id: number; title: string }, confirmPast = false) {
     setBusyId(h.id);
     const r = await api(`/api/admin/holidays/${h.id}`, {
       method: 'DELETE',
-      body: { confirmPast: true },
+      body: confirmPast ? { confirmPast } : undefined,
     });
     setBusyId(null);
     if (r.ok) {
+      setPast(null);
       toast(`"${h.title}" removed. You can restore it from Recently deleted below.`);
       if (dialog?.kind === 'day' && dialog.only === h.id) setDialog(null);
       refresh();
+    } else if (r.code === 'PAST_CONFIRM') {
+      setPast({ id: h.id, kind: 'delete', message: r.message, title: h.title });
     } else {
       toast(r.message, 'error');
       sessionGone(r.status);
     }
   }
 
-  async function restore(h: FullHoliday) {
+  async function restore(h: FullHoliday, confirmPast = false) {
     setBusyId(h.id);
     const r = await api<{ conflicts: Conflict[] }>(`/api/admin/holidays/${h.id}/restore`, {
       method: 'POST',
-      body: { confirmPast: true },
+      body: confirmPast ? { confirmPast } : undefined,
     });
     setBusyId(null);
+    if (!r.ok && r.code === 'PAST_CONFIRM') {
+      return setPast({ id: h.id, kind: 'restore', message: r.message, title: h.title });
+    }
     if (!r.ok) return toast(r.message, 'error');
+    setPast(null);
     const n = r.data.conflicts.length;
     toast(
       n
@@ -180,6 +195,22 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
     );
     refresh();
   }
+
+  /** The inline "Fix a past holiday" box for one holiday and one kind of action. */
+  const pastBox = (id: number, kind: 'delete' | 'restore', title: string) =>
+    past?.id === id && past.kind === kind ? (
+      <PastConfirm
+        message={past.message}
+        busy={busyId === id}
+        onConfirm={() =>
+          kind === 'delete'
+            ? void removeOneOff({ id, title }, true)
+            : void restore(deletedById(id), true)
+        }
+        onCancel={() => setPast(null)}
+      />
+    ) : null;
+  const deletedById = (id: number) => deleted.find((d) => d.id === id)!;
 
   const dayDate = dialog?.kind === 'day' ? dialog.date : null;
   const only = dialog?.kind === 'day' ? dialog.only : undefined;
@@ -267,9 +298,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                   <select
                     aria-label="Filter department"
                     value={filterDeptId}
-                    onChange={(e) =>
-                      setFilterDeptId(e.target.value ? Number(e.target.value) : '')
-                    }
+                    onChange={(e) => setFilterDeptId(e.target.value ? Number(e.target.value) : '')}
                     className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-900"
                   >
                     <option value="">All Depts</option>
@@ -359,10 +388,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                         ? 'Common Holiday'
                         : 'Dept Holiday';
               return (
-                <li
-                  key={h.id}
-                  className="flex flex-wrap items-center justify-between gap-2 py-2"
-                >
+                <li key={h.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{h.title}</span>
@@ -408,6 +434,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                       </>
                     )}
                   </div>
+                  {!isRule && pastBox(Number(h.id), 'delete', h.title)}
                 </li>
               );
             })}
@@ -439,6 +466,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                   >
                     {busyId === h.id ? 'Restoring…' : 'Restore'}
                   </button>
+                  {pastBox(h.id, 'restore', h.title)}
                   <button
                     type="button"
                     className={small}
@@ -465,6 +493,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                 initialStart={dialog.date}
                 initialEnd={dialog.endDate ?? dialog.date}
                 offDays={offDays}
+                onEditExisting={(id) => openEditor({ kind: 'edit', id })}
                 onPickEndOnCalendar={(startDate) => {
                   setDialog(null);
                   setRangePick({ start: startDate });
@@ -530,6 +559,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                             >
                               {busyId === id ? 'Removing…' : 'Remove'}
                             </button>
+                            {pastBox(id, 'delete', h.title)}
                           </>
                         )
                       }
@@ -574,9 +604,19 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
 }
 
 const FIXED_PRESETS = [
-  { label: '21 Feb · Shaheed Day', title: 'Shaheed Day & International Mother Language Day', month: 2, day: 21 },
+  {
+    label: '21 Feb · Shaheed Day',
+    title: 'Shaheed Day & International Mother Language Day',
+    month: 2,
+    day: 21,
+  },
   { label: '26 Mar · Independence Day', title: 'Independence & National Day', month: 3, day: 26 },
-  { label: '14 Apr · Pohela Boishakh', title: 'Bengali New Year (Pohela Boishakh)', month: 4, day: 14 },
+  {
+    label: '14 Apr · Pohela Boishakh',
+    title: 'Bengali New Year (Pohela Boishakh)',
+    month: 4,
+    day: 14,
+  },
   { label: '1 May · May Day', title: 'May Day', month: 5, day: 1 },
   { label: '16 Dec · Victory Day', title: 'Victory Day', month: 12, day: 16 },
 ] as const;
@@ -608,6 +648,7 @@ function EasyAddHolidayForm({
   initialStart,
   initialEnd,
   onPickEndOnCalendar,
+  onEditExisting,
   onSaved,
 }: {
   structure: ApiStructure;
@@ -615,6 +656,7 @@ function EasyAddHolidayForm({
   initialEnd: string;
   offDays?: number[];
   onPickEndOnCalendar: (startDate: string) => void;
+  onEditExisting: (id: number) => void;
   onSaved: (msg: string, addedDept?: number | 'all') => void;
 }) {
   const [tab, setTab] = useState<'common' | 'dept-break' | 'sem-break'>('common');
@@ -640,13 +682,15 @@ function EasyAddHolidayForm({
 
   // Type 3 (Semester Break): Last Exam Date -> day after last exam to weekend of that week
   const [lastExamDate, setLastExamDate] = useState(initialStart);
-  const [semBreakEnd, setSemBreakEnd] = useState(
-    () => computeSemesterBreakRange(initialStart).end,
-  );
+  const [semBreakEnd, setSemBreakEnd] = useState(() => computeSemesterBreakRange(initialStart).end);
 
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when the server asked for "Fix a past holiday"; the next Save sends confirmPast.
+  const [pastAsk, setPastAsk] = useState<{ message: string; sig: string } | null>(null);
+  // A yearly-variable save is two calls; if the 2nd needs the confirm, retry must not re-create the rule.
+  const pendingRule = useRef<number | null>(null);
 
   const intakeYears = useMemo(
     () => [...new Set(structure.series.map((s) => s.intakeYear))].sort(),
@@ -673,8 +717,34 @@ function EasyAddHolidayForm({
     return audienceFromSeries(new Set(ids), structure);
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  // Any change to what is being saved withdraws the confirm: the server re-checks the new dates.
+  const sig = JSON.stringify([
+    tab,
+    commonKind,
+    start,
+    end,
+    fixedMonth,
+    fixedDay,
+    lastExamDate,
+    semBreakEnd,
+    [...pickedDepts],
+    pickedBatch,
+  ]);
+  const pastMsg = pastAsk?.sig === sig ? pastAsk.message : null;
+  // Set when the server answered 409 OVERLAP; "Save anyway" resends with confirmOverlap.
+  const [overlapAsk, setOverlapAsk] = useState<{ conflicts: Conflict[]; sig: string } | null>(null);
+  const overlaps = overlapAsk?.sig === sig ? overlapAsk.conflicts : null;
+  const confirmOverlap = overlaps ? { confirmOverlap: true } : {};
+  const confirmPast = pastMsg !== null ? { confirmPast: true } : {};
+  // A rejected save shows the past warning (the next Save confirms it) or the plain error.
+  function reject(r: { code?: string; message: string; conflicts?: Conflict[] }) {
+    if (r.code === 'OVERLAP' && r.conflicts) return setOverlapAsk({ conflicts: r.conflicts, sig });
+    if (r.code === 'PAST_CONFIRM') return setPastAsk({ message: r.message, sig });
+    setError(r.message);
+  }
+
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
 
     if (tab === 'common') {
@@ -712,33 +782,38 @@ function EasyAddHolidayForm({
           1,
           Math.min(60, Math.round((msOf(end) - msOf(start)) / 86_400_000) + 1),
         );
-        const cr = await api<{ ruleId: number }>('/api/admin/holiday-rules', {
-          method: 'POST',
-          body: {
-            title: title.trim(),
-            category: 'HOLIDAY',
-            classesOnly: false,
-            audience: [{ scopeType: 'ALL', scopeId: null }],
-            effectiveFromYear: year,
-            params: { kind: 'MANUAL_YEARLY', defaultLengthDays: len },
-          },
-        });
-        if (!cr.ok) {
-          setSaving(false);
-          return setError(cr.message);
+        let ruleId = pendingRule.current;
+        if (ruleId === null) {
+          const cr = await api<{ ruleId: number }>('/api/admin/holiday-rules', {
+            method: 'POST',
+            body: {
+              title: title.trim(),
+              category: 'HOLIDAY',
+              classesOnly: false,
+              audience: [{ scopeType: 'ALL', scopeId: null }],
+              effectiveFromYear: year,
+              params: { kind: 'MANUAL_YEARLY', defaultLengthDays: len },
+            },
+          });
+          if (!cr.ok) {
+            setSaving(false);
+            return setError(cr.message);
+          }
+          ruleId = pendingRule.current = cr.data.ruleId;
         }
-        const or = await api(`/api/admin/holiday-rules/${cr.data.ruleId}/overrides`, {
+        const or = await api(`/api/admin/holiday-rules/${ruleId}/overrides`, {
           method: 'PUT',
           body: {
             year,
             startDate: start,
             endDate: end,
             note: note.trim() || null,
-            confirmPast: true,
+            ...confirmPast,
           },
         });
         setSaving(false);
-        if (!or.ok) return setError(or.message);
+        if (!or.ok) return reject(or);
+        pendingRule.current = null;
         return onSaved(`Yearly variable holiday "${title.trim()}" saved for ${year}.`);
       } else {
         const r = await api('/api/admin/holidays', {
@@ -751,12 +826,12 @@ function EasyAddHolidayForm({
             startDate: start,
             endDate: end,
             audience: [{ scopeType: 'ALL', scopeId: null }],
-            confirmOverlap: true,
-            confirmPast: true,
+            ...confirmOverlap,
+            ...confirmPast,
           },
         });
         setSaving(false);
-        if (!r.ok) return setError(r.message);
+        if (!r.ok) return reject(r);
         return onSaved(`Common holiday "${title.trim()}" added.`);
       }
     }
@@ -769,13 +844,11 @@ function EasyAddHolidayForm({
     if (audience.length === 0) {
       return setError('No active series found for the selected department / batch.');
     }
-    const viewDept: number | 'all' =
-      pickedDepts.size === 1 ? [...pickedDepts][0]! : 'all';
+    const viewDept: number | 'all' = pickedDepts.size === 1 ? [...pickedDepts][0]! : 'all';
 
     if (tab === 'dept-break') {
       if (!start || !end || end < start) return setError('End date cannot be before Start date.');
-      const defaultName =
-        breakCategory === 'MID_BREAK' ? 'Mid Break' : 'Unofficial Break';
+      const defaultName = breakCategory === 'MID_BREAK' ? 'Mid Break' : 'Unofficial Break';
       const finalTitle = title.trim() || defaultName;
       setSaving(true);
       const r = await api('/api/admin/holidays', {
@@ -788,12 +861,12 @@ function EasyAddHolidayForm({
           startDate: start,
           endDate: end,
           audience,
-          confirmOverlap: true,
-          confirmPast: true,
+          ...confirmOverlap,
+          ...confirmPast,
         },
       });
       setSaving(false);
-      if (!r.ok) return setError(r.message);
+      if (!r.ok) return reject(r);
       return onSaved(`${finalTitle} added (${rangeText(start, end)}).`, viewDept);
     }
 
@@ -814,12 +887,12 @@ function EasyAddHolidayForm({
         startDate: semStart,
         endDate: semBreakEnd,
         audience,
-        confirmOverlap: true,
-        confirmPast: true,
+        ...confirmOverlap,
+        ...confirmPast,
       },
     });
     setSaving(false);
-    if (!r.ok) return setError(r.message);
+    if (!r.ok) return reject(r);
     return onSaved(`Semester Break added (${rangeText(semStart, semBreakEnd)}).`, viewDept);
   }
 
@@ -1259,17 +1332,29 @@ function EasyAddHolidayForm({
           {error}
         </p>
       )}
+      {overlaps && (
+        <OverlapCard
+          conflicts={overlaps}
+          busy={saving}
+          onEdit={onEditExisting}
+          onSaveAnyway={() => void submit()}
+          onCancel={() => setOverlapAsk(null)}
+        />
+      )}
+      {pastMsg && <PastNote message={pastMsg} />}
 
       <button type="submit" disabled={saving} className={`${primary} w-full py-2`}>
         {saving
           ? 'Saving…'
-          : tab === 'common'
-            ? commonKind === 'fixed'
-              ? 'Save Yearly Fixed Holiday'
-              : 'Save Common Holiday'
-            : tab === 'dept-break'
-              ? `Save ${breakCategory === 'MID_BREAK' ? 'Mid Break' : 'Unofficial Break'}`
-              : 'Save Semester Break'}
+          : pastMsg
+            ? 'Fix a past holiday'
+            : tab === 'common'
+              ? commonKind === 'fixed'
+                ? 'Save Yearly Fixed Holiday'
+                : 'Save Common Holiday'
+              : tab === 'dept-break'
+                ? `Save ${breakCategory === 'MID_BREAK' ? 'Mid Break' : 'Unofficial Break'}`
+                : 'Save Semester Break'}
       </button>
     </form>
   );

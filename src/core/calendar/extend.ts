@@ -16,3 +16,27 @@ export function extendWithAdjacentOffDays(r: DateRange, offDays: number[]): Date
   }
   return { startDate, endDate };
 }
+
+/** Study phases (exam strips, class weeks, board viva) are not days off, so no Thu/Fri lead-in. */
+const STUDY_CATEGORIES = new Set(['EXAM', 'CLASS', 'VIVA']);
+export const widensOverWeekend = (category: string) => !STUDY_CATEGORIES.has(category);
+
+/**
+ * DISPLAY ONLY. One week row of a bar, as [fromCol, toCol, faint] runs: the weekly-off lead-in,
+ * the real holiday, the weekly-off tail (faint). `real[c]` = day c is inside the saved dates.
+ */
+export function barRuns(
+  real: boolean[],
+  startCol: number,
+  endCol: number,
+): [number, number, boolean][] {
+  const cols = Array.from({ length: endCol - startCol + 1 }, (_, i) => startCol + i);
+  const first = cols.findIndex((c) => real[c]);
+  const lastReal = cols.findLastIndex((c) => real[c]);
+  if (first < 0) return [[startCol, endCol, true]];
+  const runs: [number, number, boolean][] = [];
+  if (first > 0) runs.push([startCol, cols[first - 1]!, true]);
+  runs.push([cols[first]!, cols[lastReal]!, false]);
+  if (lastReal < cols.length - 1) runs.push([cols[lastReal + 1]!, endCol, true]);
+  return runs;
+}

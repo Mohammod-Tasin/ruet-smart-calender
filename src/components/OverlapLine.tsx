@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react';
 import type { AudienceEntry } from '@/core/calendar/types';
 import { api, type Conflict } from '@/lib/api';
-import { audienceText } from '@/lib/format';
+import { audienceText, stamp } from '@/lib/format';
+import { small } from './ui';
 import { rangeText } from '@/lib/journey-ui';
 
 /**
@@ -70,6 +71,7 @@ export function OverlapLine({
           <span aria-hidden>⚠ </span>
           <b>{c.title}</b> is already set for {audienceText(c.sharedLabel)} (
           {rangeText(c.overlap.startDate, c.overlap.endDate)})
+          {` · set by ${c.updatedBy.name}, ${stamp(c.updatedAt)}`}
           {conflicts.length > 1 && ` and ${conflicts.length - 1} more`}
           {c.source === 'ONE_OFF' && typeof c.id === 'number' ? (
             <>
@@ -87,6 +89,77 @@ export function OverlapLine({
           )}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * The 409 OVERLAP answer for forms without a live check (the add form): one card per clash with
+ * who set it and when, and the three choices: edit the existing holiday, save anyway (resends
+ * with `confirmOverlap`), or cancel (drops the warning, nothing is saved).
+ */
+export function OverlapCard({
+  conflicts,
+  busy,
+  onEdit,
+  onSaveAnyway,
+  onCancel,
+}: {
+  conflicts: Conflict[];
+  busy?: boolean;
+  onEdit: (id: number) => void;
+  onSaveAnyway: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="space-y-2 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-50"
+    >
+      <p className="font-medium">
+        This overlaps{' '}
+        {conflicts.length === 1 ? 'another holiday' : `${conflicts.length} other holidays`}:
+      </p>
+      <ul className="space-y-1.5">
+        {conflicts.slice(0, 3).map((c) => (
+          <li key={c.id}>
+            <b>{c.title}</b> · {audienceText(c.sharedLabel)} ·{' '}
+            {rangeText(c.overlap.startDate, c.overlap.endDate)}
+            <br />
+            <span className="text-xs opacity-80">
+              Set by {c.updatedBy.name} · {stamp(c.updatedAt)}
+            </span>
+            {c.source === 'ONE_OFF' && typeof c.id === 'number' ? (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => onEdit(c.id as number)}
+                  className="text-xs font-medium underline"
+                >
+                  Edit existing
+                </button>
+              </>
+            ) : (
+              <span className="text-xs"> (change it in Yearly holidays)</span>
+            )}
+          </li>
+        ))}
+        {conflicts.length > 3 && <li className="text-xs">…and {conflicts.length - 3} more</li>}
+      </ul>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onSaveAnyway}
+          className="rounded-md bg-amber-600 px-3 py-1 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+        >
+          {busy ? 'Saving…' : 'Save anyway'}
+        </button>
+        <button type="button" disabled={busy} onClick={onCancel} className={small}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

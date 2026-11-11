@@ -7,12 +7,17 @@ import { api } from '@/lib/api';
 import {
   dayText,
   PHASE_LABEL,
+  PHASE_STYLE,
   runningText,
   semLabel,
   seriesName,
+  SKIPPED_STRIP,
+  weekTip,
   type JourneyResponse,
 } from '@/lib/journey-ui';
 import { Sheet } from './Sheet';
+
+const STRIP_PHASES: JPhase[] = ['CLASS', 'MID_BREAK', 'VIVA', 'EXAM', 'SEMESTER_BREAK'];
 
 const STAGE_CHIP_STYLE: Partial<Record<JPhase, { off: string; on: string }>> = {
   MID_BREAK: {
@@ -48,7 +53,14 @@ interface TimelineItem {
 
 type TimelineEntry =
   | { kind: 'item'; item: TimelineItem; date: string; week: JourneyWeek }
-  | { kind: 'holiday'; weekStart: string; date: string; title: string; isUnofficial?: boolean; week: JourneyWeek };
+  | {
+      kind: 'holiday';
+      weekStart: string;
+      date: string;
+      title: string;
+      isUnofficial?: boolean;
+      week: JourneyWeek;
+    };
 
 /** Returns the Saturday immediately following `dateStr`. */
 function nextSaturdayAfter(dateStr: string): string {
@@ -102,19 +114,14 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
   // Use the current semester from the running state or the earliest recorded semester
   const sem = running && s.semesterNo ? s.semesterNo : (d.weeks[0]?.semesterNo ?? 1);
 
-  const semesterWeeks = useMemo(
-    () => d.weeks.filter((w) => w.semesterNo === sem),
-    [d.weeks, sem],
-  );
+  const semesterWeeks = useMemo(() => d.weeks.filter((w) => w.semesterNo === sem), [d.weeks, sem]);
   const lastExamWeek = useMemo(
     () => [...semesterWeeks].reverse().find((w) => w.phase === 'EXAM'),
     [semesterWeeks],
   );
   const e5Date = useMemo(
     () =>
-      lastExamWeek
-        ? addDays(lastExamWeek.weekStart, Math.max(0, 5 - lastExamWeek.weekNo))
-        : null,
+      lastExamWeek ? addDays(lastExamWeek.weekStart, Math.max(0, 5 - lastExamWeek.weekNo)) : null,
     [lastExamWeek],
   );
 
@@ -186,8 +193,7 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
             : isBreak && e5Date
               ? addDays(e5Date, 1)
               : e.week.weekStart;
-        const end =
-          isExam5 && e5Date ? addDays(e5Date, 1) : addDays(e.week.weekStart, 7);
+        const end = isExam5 && e5Date ? addDays(e5Date, 1) : addDays(e.week.weekStart, 7);
         return date >= start && date < end;
       }) ?? null,
     [timelineEntries, date, e5Date, lastExamWeek],
@@ -239,9 +245,7 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               Academic Timeline
             </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Tap any week to view details
-            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">Tap any week to view details</p>
           </div>
           {running && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">
@@ -273,12 +277,12 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
                   entry.kind === 'item' &&
                   entry.item.phase === 'EXAM' &&
                   entry.week.weekNo === lastExamWeek?.weekNo;
-                const isBreak =
-                  entry.kind === 'item' && entry.item.phase === 'SEMESTER_BREAK';
+                const isBreak = entry.kind === 'item' && entry.item.phase === 'SEMESTER_BREAK';
                 const isCurrentWeek =
                   running &&
                   (entry.kind === 'item' && entry.item.phase === 'MID_BREAK'
-                    ? date >= addDays(entry.week.weekStart, -2) && date < addDays(entry.week.weekStart, 7)
+                    ? date >= addDays(entry.week.weekStart, -2) &&
+                      date < addDays(entry.week.weekStart, 7)
                     : isExam5 && e5Date
                       ? date >= entry.week.weekStart && date < addDays(e5Date, 1)
                       : isBreak && e5Date
@@ -298,7 +302,8 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
                     : isCurrentWeek
                       ? 'border-red-600 bg-red-100 text-red-900 font-bold shadow-sm ring-2 ring-red-500 ring-offset-2 dark:border-red-500 dark:bg-red-950 dark:text-red-100'
                       : 'border-red-300 bg-red-50 text-red-800 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200';
-                  const ringClass = isSelected && !isCurrentWeek ? 'ring-2 ring-indigo-400 ring-offset-1' : '';
+                  const ringClass =
+                    isSelected && !isCurrentWeek ? 'ring-2 ring-indigo-400 ring-offset-1' : '';
 
                   chip = (
                     <button
@@ -336,6 +341,7 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
                     <button
                       type="button"
                       onClick={() => setPickedEntry(entry)}
+                      title={weekTip(entry.week)}
                       className={`${baseClass} ${activeClass} ${ringClass}`}
                     >
                       <span>{item.label}</span>
@@ -404,8 +410,8 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
                   )}
               </p>
               <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                Starting date: {dayText(activeEntry.date)} (Thursday) · Week of {dayText(activeEntry.weekStart)} –{' '}
-                {dayText(addDays(activeEntry.weekStart, 6))}
+                Starting date: {dayText(activeEntry.date)} (Thursday) · Week of{' '}
+                {dayText(activeEntry.weekStart)} – {dayText(addDays(activeEntry.weekStart, 6))}
                 {' · '}The semester shifted by 1 week.
               </p>
             </div>
@@ -426,7 +432,10 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
               </p>
               <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                 {activeEntry.item.phase === 'EXAM' ? (
-                  <p>Exam date: {dayText(activeEntry.date)} (Week of {dayText(activeEntry.week.weekStart)})</p>
+                  <p>
+                    Exam date: {dayText(activeEntry.date)} (Week of{' '}
+                    {dayText(activeEntry.week.weekStart)})
+                  </p>
                 ) : activeEntry.item.phase === 'MID_BREAK' ? (
                   <p>Break starts: {dayText(activeEntry.date)} (Thursday, including weekend)</p>
                 ) : activeEntry.item.phase === 'SEMESTER_BREAK' ? (
@@ -434,7 +443,8 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
                     <p>Starting date: {dayText(activeEntry.date)}</p>
                     {nextSemClassStartDate && (
                       <p className="font-medium text-emerald-700 dark:text-emerald-400">
-                        Next semester ({semLabel(sem + 1)}) classes start: {dayText(nextSemClassStartDate)} (Saturday)
+                        Next semester ({semLabel(sem + 1)}) classes start:{' '}
+                        {dayText(nextSemClassStartDate)} (Saturday)
                       </p>
                     )}
                     {sem === 8 && d.graduation && (
@@ -451,6 +461,72 @@ function Body({ d, date }: { d: JourneyResponse; date: string }) {
           )}
         </div>
       )}
+      {semesterWeeks.length > 0 && (
+        <details className="text-sm">
+          <summary className="cursor-pointer font-medium underline">
+            Week dates (Saturday) · Semester {semLabel(sem)}
+          </summary>
+          <div className="mt-2">
+            <WeekStrip weeks={semesterWeeks} today={date} />
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/** One box per week showing the Saturday date; month names above, today marked, holiday weeks hatched. */
+function WeekStrip({ weeks, today }: { weeks: JourneyResponse['weeks']; today: string }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  const tip = weeks.find((w) => w.weekStart === picked);
+  return (
+    <div>
+      <div className="flex gap-0.5 overflow-x-auto pb-1">
+        {weeks.map((w, i) => {
+          const label =
+            w.weekStart.slice(0, 7) !== weeks[i - 1]?.weekStart.slice(0, 7)
+              ? monthShort(w.weekStart)
+              : '';
+          const now = today >= w.weekStart && today < addDays(w.weekStart, 7);
+          return (
+            <div key={w.weekStart} className="flex w-6 shrink-0 flex-col items-center">
+              <span className="h-4 w-full overflow-visible text-[10px] leading-4 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                {label}
+              </span>
+              <button
+                type="button"
+                title={weekTip(w)}
+                aria-label={weekTip(w)}
+                aria-pressed={picked === w.weekStart}
+                onClick={() => setPicked(picked === w.weekStart ? null : w.weekStart)}
+                className={`h-6 w-full rounded-sm text-[10px] leading-6 font-medium text-white ${
+                  w.status === 'SKIPPED'
+                    ? `${SKIPPED_STRIP} text-zinc-900 dark:text-white`
+                    : PHASE_STYLE[w.phase].strip
+                } ${now ? 'ring-2 ring-zinc-900 ring-offset-1 dark:ring-white' : ''}`}
+              >
+                {Number(w.weekStart.slice(8, 10))}
+              </button>
+              <span className="h-3 text-[10px] leading-3">{now ? '▲' : ''}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="min-h-5 text-xs text-zinc-700 dark:text-zinc-300">
+        {tip ? weekTip(tip) : 'Tap a week for its dates.'}
+      </p>
+      <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+        {STRIP_PHASES.map((p) => (
+          <li key={p} className="flex items-center gap-1">
+            <span className={`inline-block h-2.5 w-2.5 rounded-sm ${PHASE_STYLE[p].strip}`} />
+            {PHASE_LABEL[p]}
+          </li>
+        ))}
+        <li className="flex items-center gap-1">
+          <span className={`inline-block h-2.5 w-2.5 rounded-sm ${SKIPPED_STRIP}`} />
+          Holiday week
+        </li>
+      </ul>
     </div>
   );
 }
