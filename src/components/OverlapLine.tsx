@@ -107,7 +107,8 @@ export function OverlapCard({
 }: {
   conflicts: Conflict[];
   busy?: boolean;
-  onEdit: (id: number) => void;
+  /** Omit where there is no editor to open; the card then just names the clash. */
+  onEdit?: (id: number) => void;
   onSaveAnyway: () => void;
   onCancel: () => void;
 }) {
@@ -129,7 +130,7 @@ export function OverlapCard({
             <span className="text-xs opacity-80">
               Set by {c.updatedBy.name} · {stamp(c.updatedAt)}
             </span>
-            {c.source === 'ONE_OFF' && typeof c.id === 'number' ? (
+            {!onEdit ? null : c.source === 'ONE_OFF' && typeof c.id === 'number' ? (
               <>
                 {' '}
                 <button

@@ -28,6 +28,9 @@ import {
   type JourneyResponse,
   type StatusEntry,
 } from '@/lib/journey-ui';
+import { gateBreak, postBreak, type BreakDeps } from '@/lib/break-save';
+import { breakDeps, useBreakConfirm } from './BreakConfirm';
+import { PastConfirm } from './PastConfirm';
 import { Sheet } from './Sheet';
 import { StatusMatrix } from './StatusMatrix';
 import { useToast } from './Toast';
@@ -248,15 +251,23 @@ async function saveUnofficialBreakForSeries({
   structure,
   weekStart,
   anchorPos,
+  deps,
 }: {
   seriesIds: number[];
   structure: ApiStructure;
   weekStart: string;
+  deps: BreakDeps;
   anchorPos?: { semesterNo: number; phase: JPhase; weekNo: number; asOfDate: string };
 }) {
   const startDate = addDays(weekStart, -2);
   const endDate = addDays(weekStart, 6);
   const audience = audienceFromSeries(new Set(seriesIds), structure);
+
+  // Look first, before any position is touched: nothing is half-applied if the admin cancels.
+  const flags = await gateBreak({ startDate, endDate }, audience, deps);
+  if (!flags) {
+    return { ok: false as const, cancelled: true, message: 'Cancelled. Nothing was changed.' };
+  }
 
   if (anchorPos) {
     const pr = await api('/api/admin/positions/bulk', {
@@ -270,7 +281,7 @@ async function saveUnofficialBreakForSeries({
         weekNo: anchorPos.weekNo,
       },
     });
-    if (!pr.ok) return { ok: false as const, message: pr.message };
+    if (!pr.ok) return { ok: false as const, cancelled: false, message: pr.message };
   }
 
   for (const id of seriesIds) {
@@ -299,20 +310,19 @@ async function saveUnofficialBreakForSeries({
     }
   }
 
-  const hr = await api('/api/admin/holidays', {
-    method: 'POST',
-    body: {
+  const hr = await postBreak(
+    {
       title: 'Unofficial Break',
       category: 'UNOFFICIAL_BREAK',
       classesOnly: true,
       startDate,
       endDate,
       audience,
-      confirmOverlap: true,
-      confirmPast: true,
     },
-  });
-  if (!hr.ok) return { ok: false as const, message: hr.message };
+    flags,
+    deps,
+  );
+  if (!hr.ok) return { ok: false as const, cancelled: hr.cancelled, message: hr.message };
   return { ok: true as const, range: rangeText(startDate, endDate) };
 }
 
@@ -339,6 +349,7 @@ function DepartmentSheet({
   onSaved: () => void;
 }) {
   const toast = useToast();
+  const confirm = useBreakConfirm();
   const [busyId, setBusyId] = useState<number | 'all' | null>(null);
   const dept = structure.departments.find((d) => d.id === deptId);
   const seriesList = useMemo(
@@ -385,7 +396,12 @@ function DepartmentSheet({
     const s = e.state;
     const weekStart = when === 'this' ? thisSat : nextSat;
     const anchorPos =
-      when === 'next' && s.status === 'RUNNING' && s.semesterNo && s.phase && s.weekNo && !s.onSkippedWeek
+      when === 'next' &&
+      s.status === 'RUNNING' &&
+      s.semesterNo &&
+      s.phase &&
+      s.weekNo &&
+      !s.onSkippedWeek
         ? {
             semesterNo: s.semesterNo,
             phase: s.phase,
@@ -398,9 +414,10 @@ function DepartmentSheet({
       structure,
       weekStart,
       anchorPos,
+      deps: breakDeps(confirm.ask),
     });
     setBusyId(null);
-    if (!res.ok) return toast(res.message, 'error');
+    if (!res.ok) return toast(res.message, res.cancelled ? 'warn' : 'error');
     toast(`Unofficial Break added for ${e.series} (${res.range}).`);
     onSaved();
   }
@@ -413,23 +430,22 @@ function DepartmentSheet({
       seriesIds: seriesList.map((x) => x.seriesId),
       structure,
       weekStart,
+      deps: breakDeps(confirm.ask),
     });
     setBusyId(null);
-    if (!res.ok) return toast(res.message, 'error');
+    if (!res.ok) return toast(res.message, res.cancelled ? 'warn' : 'error');
     toast(`Unofficial Break added for all ${dept?.code ?? 'department'} batches (${res.range}).`);
     onSaved();
   }
 
   return (
-    <Sheet
-      title={dept ? `${dept.code} — ${dept.name}` : 'Department'}
-      onClose={onClose}
-    >
+    <Sheet title={dept ? `${dept.code} — ${dept.name}` : 'Department'} onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Status on <strong>{dayText(date)}</strong>. Click <strong>Edit</strong> on any batch to
           change its semester, stage, or week.
         </p>
+        {confirm.node}
 
         {/* Each Series in the Department */}
         <div className="space-y-2.5">
@@ -610,6 +626,7 @@ function WhereSheet({
   onSaved: () => void;
 }) {
   const toast = useToast();
+  const confirm = useBreakConfirm();
   const nextSat = useMemo(() => addDays(weekStartOf(date), 7), [date]);
 
   const baseFields = useMemo(
@@ -784,7 +801,13 @@ function WhereSheet({
 
     const toEntry = (s: Slot, w: string): TimelineEntry | null => {
       if (s.breakTitle) {
-        return { kind: 'holiday', weekStart: w, date: addDays(w, -2), title: s.breakTitle, isUnofficial: true };
+        return {
+          kind: 'holiday',
+          weekStart: w,
+          date: addDays(w, -2),
+          title: s.breakTitle,
+          isUnofficial: true,
+        };
       }
       if (!s.item) return null;
       let date = w;
@@ -815,7 +838,13 @@ function WhereSheet({
       for (let guard = 0; guard < 12; guard++) {
         const res = holidayWeek(w);
         if (!res) break;
-        after.push({ kind: 'holiday', weekStart: w, date: addDays(w, -2), title: res.title, isUnofficial: res.isUnofficial });
+        after.push({
+          kind: 'holiday',
+          weekStart: w,
+          date: addDays(w, -2),
+          title: res.title,
+          isUnofficial: res.isUnofficial,
+        });
         w = addDays(w, 7);
       }
       const e = toEntry(slots[k]!, w);
@@ -828,7 +857,13 @@ function WhereSheet({
       for (let guard = 0; guard < 12; guard++) {
         const res = holidayWeek(w);
         if (!res) break;
-        before.push({ kind: 'holiday', weekStart: w, date: addDays(w, -2), title: res.title, isUnofficial: res.isUnofficial });
+        before.push({
+          kind: 'holiday',
+          weekStart: w,
+          date: addDays(w, -2),
+          title: res.title,
+          isUnofficial: res.isUnofficial,
+        });
         w = addDays(w, -7);
       }
       const e = toEntry(slots[k]!, w);
@@ -868,9 +903,7 @@ function WhereSheet({
   const ready = sem !== null && phase !== null && weekNo !== null && chosen.length > 0;
   const who = chosen.length === 1 ? chosen[0]!.series : `${chosen.length} series`;
   const title =
-    target.kind === 'series'
-      ? `Edit ${target.entry.series}`
-      : `Edit Batch ${target.year}`;
+    target.kind === 'series' ? `Edit ${target.entry.series}` : `Edit Batch ${target.year}`;
 
   async function save() {
     if (!ready || !sem || !phase) return;
@@ -886,9 +919,7 @@ function WhereSheet({
       classesAfter: Math.max(0, totalClasses - clampedMid),
       vivaWeeks: existingFields.vivaWeeks,
       finalWeeks:
-        phase === 'EXAM' && weekNo > existingFields.finalWeeks
-          ? weekNo
-          : existingFields.finalWeeks,
+        phase === 'EXAM' && weekNo > existingFields.finalWeeks ? weekNo : existingFields.finalWeeks,
     };
 
     const needScheduleSave = !sameFields(desiredFields, existingFields);
@@ -985,12 +1016,26 @@ function WhereSheet({
         const breakEndSat = addDays(breakStartSat, (brk.weeks - 1) * 7);
         const breakEndDate = addDays(breakEndSat, 6);
 
+        // Look first: the position clean-up below deletes rows, so it only runs once the admin
+        // has agreed to anything the break clashes with. Cancel keeps the status saved above.
+        const audience = audienceFromSeries(new Set(seriesIds), structure);
+        const range = { startDate: breakStartThu, endDate: breakEndDate };
+        const deps = breakDeps(confirm.ask);
+        const flags = await gateBreak(range, audience, deps);
+        if (!flags) {
+          setSaving(false);
+          toast(`Status saved for ${who}. The Unofficial Break was not added.`, 'warn');
+          return onSaved();
+        }
+
         // Clear any conflicting POSITION rows pinned inside [breakStartSat, breakEndSat]
         for (const id of seriesIds) {
           const sj =
             id === seriesIds[0]
               ? jr
-              : await api<JourneyResponse>(`/api/series/${id}/journey?date=${date}&_=${Date.now()}`);
+              : await api<JourneyResponse>(
+                  `/api/series/${id}/journey?date=${date}&_=${Date.now()}`,
+                );
           if (!sj.ok) continue;
           const conflicting = sj.data.positions.filter((p) => {
             if (p.kind !== 'POSITION') return false;
@@ -1022,30 +1067,25 @@ function WhereSheet({
           }
         }
 
-        const audience = audienceFromSeries(new Set(seriesIds), structure);
-        const hr = await api('/api/admin/holidays', {
-          method: 'POST',
-          body: {
+        const hr = await postBreak(
+          {
             title: 'Unofficial Break',
             category: 'UNOFFICIAL_BREAK',
             classesOnly: true,
-            startDate: breakStartThu,
-            endDate: breakEndDate,
+            ...range,
             audience,
-            confirmOverlap: true,
-            confirmPast: true,
           },
-        });
+          flags,
+          deps,
+        );
         if (!hr.ok) {
           setSaving(false);
-          return toast(hr.message, 'error');
+          return toast(hr.message, hr.cancelled ? 'warn' : 'error');
         }
       }
 
       setSaving(false);
-      const summary = sortedBreaks
-        .map((b) => `week ${b.afterWeek} (${b.weeks}w)`)
-        .join(', ');
+      const summary = sortedBreaks.map((b) => `week ${b.afterWeek} (${b.weeks}w)`).join(', ');
       toast(`Saved for ${who} + Unofficial Break after ${summary}.`);
       onSaved();
       return;
@@ -1140,13 +1180,17 @@ function WhereSheet({
                       <>
                         <div
                           className={`mt-1 h-0.5 ${first ? 'rounded-l' : ''} ${last ? 'rounded-r' : ''} ${
-                            gi % 2 ? 'bg-indigo-300 dark:bg-indigo-700' : 'bg-zinc-300 dark:bg-zinc-600'
+                            gi % 2
+                              ? 'bg-indigo-300 dark:bg-indigo-700'
+                              : 'bg-zinc-300 dark:bg-zinc-600'
                           }`}
                         />
                         <span className="relative h-4">
                           {first && (
                             <span className="absolute left-0 text-[11px] font-medium whitespace-nowrap text-zinc-500 dark:text-zinc-400">
-                              {gi === 0 || g.month.startsWith('Jan') ? g.month : g.month.slice(0, 3)}
+                              {gi === 0 || g.month.startsWith('Jan')
+                                ? g.month
+                                : g.month.slice(0, 3)}
                             </span>
                           )}
                         </span>
@@ -1189,9 +1233,7 @@ function WhereSheet({
           <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/70">
             {/* 1st: Mid break after --- week */}
             <div className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                Mid break after
-              </span>
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">Mid break after</span>
               <div className="inline-flex items-center gap-1.5">
                 <button
                   type="button"
@@ -1240,7 +1282,9 @@ function WhereSheet({
                     setUnofficialBreaks((prev) => {
                       const nextWeek = Math.min(
                         totalClasses,
-                        prev.length > 0 ? Math.min(totalClasses, prev[prev.length - 1]!.afterWeek + 2) : 2,
+                        prev.length > 0
+                          ? Math.min(totalClasses, prev[prev.length - 1]!.afterWeek + 2)
+                          : 2,
                       );
                       return [...prev, { afterWeek: nextWeek, weeks: 1 }];
                     });
@@ -1253,7 +1297,8 @@ function WhereSheet({
 
               {unofficialBreaks.length === 0 ? (
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  No unofficial breaks added for this semester. Click &quot;+ Add break&quot; to add one.
+                  No unofficial breaks added for this semester. Click &quot;+ Add break&quot; to add
+                  one.
                 </p>
               ) : (
                 <div className="mt-2 space-y-2">
@@ -1292,7 +1337,9 @@ function WhereSheet({
                             setDirtyCustom(true);
                             setUnofficialBreaks((prev) =>
                               prev.map((b, i) =>
-                                i === idx ? { ...b, afterWeek: Math.min(totalClasses, b.afterWeek + 1) } : b,
+                                i === idx
+                                  ? { ...b, afterWeek: Math.min(totalClasses, b.afterWeek + 1) }
+                                  : b,
                               ),
                             );
                           }}
@@ -1420,6 +1467,7 @@ function WhereSheet({
 
         <div className="sticky bottom-0 -mx-4 border-t border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="flex gap-2">
+            {confirm.node}
             <button type="button" className={primary} disabled={!ready || saving} onClick={save}>
               {saving ? 'Saving…' : 'Save Status'}
             </button>
@@ -1448,6 +1496,22 @@ function ActiveAutoBreaks({
   const toast = useToast();
   const [breaks, setBreaks] = useState<PublicHoliday[]>([]);
   const [busyId, setBusyId] = useState<number | string | null>(null);
+  // The server asked for "Fix a past holiday" for this break; Confirm sends the delete again.
+  const [past, setPast] = useState<{ id: number; message: string } | null>(null);
+
+  async function remove(id: number, confirmPast: boolean) {
+    setBusyId(id);
+    const r = await api(`/api/admin/holidays/${id}`, {
+      method: 'DELETE',
+      body: confirmPast ? { confirmPast } : undefined,
+    });
+    setBusyId(null);
+    if (!r.ok && r.code === 'PAST_CONFIRM') return setPast({ id, message: r.message });
+    if (!r.ok) return toast(r.message, 'error');
+    setPast(null);
+    toast('Unofficial break removed.');
+    onChanged();
+  }
 
   useEffect(() => {
     let live = true;
@@ -1485,21 +1549,19 @@ function ActiveAutoBreaks({
           <button
             type="button"
             disabled={busyId === b.id}
-            onClick={async () => {
-              setBusyId(b.id);
-              const r = await api(`/api/admin/holidays/${b.id}`, {
-                method: 'DELETE',
-                body: { confirmPast: true },
-              });
-              setBusyId(null);
-              if (!r.ok) return toast(r.message, 'error');
-              toast('Unofficial break removed.');
-              onChanged();
-            }}
+            onClick={() => void remove(b.id as number, false)}
             className="text-red-700 underline dark:text-red-400"
           >
             {busyId === b.id ? 'Removing…' : 'Remove'}
           </button>
+          {past?.id === b.id && (
+            <PastConfirm
+              message={past.message}
+              busy={busyId === b.id}
+              onConfirm={() => void remove(b.id as number, true)}
+              onCancel={() => setPast(null)}
+            />
+          )}
         </div>
       ))}
     </div>
@@ -1531,9 +1593,7 @@ function Chip({
       type="button"
       aria-pressed={on}
       onClick={onClick}
-      className={`${small} min-w-10 px-3 py-1.5 ${
-        on ? (tone?.on ?? chipOn) : (tone?.off ?? '')
-      }`}
+      className={`${small} min-w-10 px-3 py-1.5 ${on ? (tone?.on ?? chipOn) : (tone?.off ?? '')}`}
     >
       {children}
     </button>
