@@ -7,6 +7,7 @@ import { isRealDate } from '@/core/validation/holidays-query';
 import { useStatus, useStructure } from '@/lib/hooks';
 import { dayText, findSeries, PHASE_SHORT } from '@/lib/journey-ui';
 import { useMySeries } from '@/lib/my-series';
+import { NextThreeWeeks } from './HolidayReport';
 import { MySeriesBar } from './MySeriesBar';
 import { SeriesSheet } from './SeriesSheet';
 import { StatusMatrix } from './StatusMatrix';
@@ -85,6 +86,8 @@ export function StatusBoard() {
               </ul>
             )}
           </section>
+
+          <NextThreeWeeks from={date} />
 
           <div className="flex flex-wrap items-end gap-2 px-1">
             <div>
