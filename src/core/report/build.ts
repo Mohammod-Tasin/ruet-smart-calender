@@ -21,6 +21,8 @@ export interface ReportHoliday {
   /** Compressed audience label with faculty names ("ALL" = everyone). */
   label: string;
   tentative: boolean;
+  /** Active series this holiday covers (lets the PDF summary count series). */
+  seriesIds?: number[];
 }
 
 /** A per-series mid-term or semester break from the journey engine. */
@@ -57,6 +59,8 @@ export interface ReportItem {
   seriesCount?: number;
   /** Breaks only: which series. */
   seriesIds?: number[];
+  /** Holidays only: the active series they cover. */
+  covered?: number[];
 }
 
 export interface ReportWeek extends ReportWindow {
@@ -139,6 +143,7 @@ export function buildReport(input: ReportInput): HolidayReport {
       flags: h.classesOnly ? ['Classes off · offices open'] : [],
       expected: h.tentative,
       inclWeekend: false,
+      covered: h.seriesIds,
     }));
 
   // Breaks: group by category + exact range.

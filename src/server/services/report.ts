@@ -1,4 +1,5 @@
 import 'server-only';
+import { coveredSeriesIds } from '@/core/calendar/compress';
 import { parseOffDays } from '@/core/calendar/grid';
 import { buildReport } from '@/core/report/build';
 import { reportWindows } from '@/core/report/windows';
@@ -19,7 +20,10 @@ export async function holidayReport(from: string) {
   const active = structure.series.filter((s) => s.isActive);
   return buildReport({
     from,
-    holidays: offDays,
+    holidays: offDays.map((d) => ({
+      ...d,
+      seriesIds: [...coveredSeriesIds(d.audience, structure)],
+    })),
     breaks,
     series: active.map((s) => ({
       id: s.id,

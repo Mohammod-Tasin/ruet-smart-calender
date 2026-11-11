@@ -55,6 +55,7 @@ describe('buildPdfModel', () => {
     startDate: string,
     endDate: string,
     label: string,
+    seriesIds: number[],
     extra: { classesOnly?: boolean; tentative?: boolean } = {},
   ) => ({
     id,
@@ -63,6 +64,7 @@ describe('buildPdfModel', () => {
     startDate,
     endDate,
     label,
+    seriesIds,
     classesOnly: false,
     tentative: false,
     ...extra,
@@ -81,27 +83,25 @@ describe('buildPdfModel', () => {
     semesterNo,
   });
   // D = Wed 11 Nov 2026 -> report weeks 14-20 Nov, 21-27 Nov, 28 Nov - 4 Dec
-  const m = buildPdfModel(
-    buildReport({
-      ...base,
-      noStatus: [2],
-      holidays: [
-        hol(1, 'Victory Day', 'HOLIDAY', '2026-12-01', '2026-12-01', 'ALL'),
-        hol(2, 'Gap', 'UNOFFICIAL_BREAK', '2026-11-26', '2026-11-27', 'CSE', {
-          classesOnly: true,
-          tentative: true,
-        }),
-        hol(3, 'Short', 'SUSPENDED_WEEK', '2026-11-22', '2026-11-25', 'EEE'),
-      ],
-      breaks: [
-        brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 4, 2),
-        brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 5, 2),
-        brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 6, 2),
-        brk('MID_BREAK', '2026-11-19', '2026-11-27', 1, 4),
-        brk('MID_BREAK', '2026-11-19', '2026-11-27', 4, 2),
-      ],
-    }),
-  );
+  const r = buildReport({
+    ...base,
+    holidays: [
+      hol(1, 'Victory Day', 'HOLIDAY', '2026-12-01', '2026-12-01', 'ALL', [1, 2, 4, 5, 6]),
+      hol(2, 'Gap', 'UNOFFICIAL_BREAK', '2026-11-26', '2026-11-27', 'CSE', [1, 4], {
+        classesOnly: true,
+        tentative: true,
+      }),
+      hol(3, 'Short', 'SUSPENDED_WEEK', '2026-11-22', '2026-11-25', 'EEE', [2, 5]),
+    ],
+    breaks: [
+      brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 4, 2),
+      brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 5, 2),
+      brk('SEMESTER_BREAK', '2026-11-13', '2026-11-20', 6, 2),
+      brk('MID_BREAK', '2026-11-19', '2026-11-27', 1, 4),
+      brk('MID_BREAK', '2026-11-19', '2026-11-27', 4, 2),
+    ],
+  });
+  const m = buildPdfModel(r);
 
   it('has the title and exactly 3 Saturday-Friday rows', () => {
     expect(m.title).toBe('RUET Holidays & Breaks · 14 Nov – 4 Dec 2026');
@@ -111,17 +111,17 @@ describe('buildPdfModel', () => {
     for (const row of m.rows) expect(weekdayOf(row.dates[0]!)).toBe(6);
   });
 
-  it('bar labels say who only, batches list department names', () => {
-    const texts = m.rows.flatMap((x) => x.bars.map((b) => b.item.text));
-    expect(texts).toContain('Batch 2024 · CSE, EEE, ME');
-    expect(texts).toContain('CSE-23');
-    expect(texts).toContain('CSE-24');
-    expect(texts).toContain('Victory Day');
-    expect(texts).toContain('CSE'); // unofficial break: who only
-    expect(texts).toContain('EEE'); // suspension: who only
-    expect(texts.some((t) => /departments|break/i.test(t))).toBe(false);
-    // a bar crossing two rows appears once per row, a single-row one once
-    expect(texts.filter((t) => t === 'Batch 2024 · CSE, EEE, ME')).toHaveLength(1);
+  it('bar labels are "<who> · <type>" with a shorter fallback', () => {
+    const bars = m.rows.flatMap((x) => x.bars.map((b) => b.item));
+    const by = (text: string) => bars.find((b) => b.text === text);
+    expect(by('Batch 2024 · CSE, EEE, ME · Semester break')!.alt).toBe(
+      'Batch 2024 · Semester break',
+    );
+    expect(by('CSE-23 · Mid-term break')!.alt).toBeUndefined(); // a single series has nothing to drop
+    expect(by('CSE-24 · Mid-term break')).toBeDefined();
+    expect(by('Everyone · Victory Day')!.alt).toBe('Victory Day');
+    expect(by('CSE · Gap')).toBeDefined();
+    expect(by('EEE · Short')).toBeDefined();
   });
 
   it('legend lists only the types that appear', () => {
@@ -138,22 +138,53 @@ describe('buildPdfModel', () => {
     expect(e.types).toEqual(['MID_BREAK']);
   });
 
-  it('table lists each break once, sorted by start date, with the first day back', () => {
-    expect(m.table.map((t) => [t.who, t.type, t.off, t.back])).toEqual([
-      ['Batch 2024 · CSE, EEE, ME', 'Semester break', 'until Fri 20 Nov', 'Sat 21 Nov'],
-      ['CSE-23', 'Mid-term break', 'Thu 19 – Fri 27 Nov', 'Sat 28 Nov'],
-      ['CSE-24', 'Mid-term break', 'Thu 19 – Fri 27 Nov', 'Sat 28 Nov'],
-      ['EEE', 'Short', 'Sun 22 – Wed 25 Nov', 'Sat 28 Nov'], // Thu and Fri are weekly holidays
-      ['CSE', 'Gap', 'Thu 26 – Fri 27 Nov · expected', 'Sat 28 Nov'],
-      ['Everyone', 'Victory Day', 'Tue 1 Dec', '–'],
+  it('summary counts series per type per week, holidays by title, empty weeks say so', () => {
+    expect(m.summary.title).toBe('Next 3 weeks · 14 Nov – 4 Dec');
+    expect(m.summary.lines.map((l) => [l.week, l.parts.map((p) => p.text)])).toEqual([
+      ['Week 1 · 14–20 Nov', ['Mid-term break 2', 'Semester break 3']],
+      ['Week 2 · 21–27 Nov', ['Mid-term break 2', 'Class suspension 2', 'Unofficial break 2']],
+      ['Week 3 · 28 Nov – 4 Dec', ['Holiday: Victory Day']],
     ]);
-    expect(m.table.find((t) => t.type === 'Gap')!.note).toBe('Classes off · offices open');
-    expect(new Set(m.table.map((t) => t.key)).size).toBe(m.table.length);
+    const e = buildPdfModel(buildReport(base));
+    expect(e.summary.lines.every((l) => l.parts.length === 0)).toBe(true);
   });
 
-  it('an empty report has no table rows, no bars and no legend types', () => {
+  it('writes one plain sentence per break per week, with departments and the return day', () => {
+    expect(m.weeks.map((w) => w.heading)).toEqual([
+      'Week 1 · Sat 14 – Fri 20 Nov',
+      'Week 2 · Sat 21 – Fri 27 Nov',
+      'Week 3 · Sat 28 Nov – Fri 4 Dec',
+    ]);
+    const w1 = m.weeks[0]!.entries;
+    expect(w1[0]).toMatchObject({
+      category: 'SEMESTER_BREAK',
+      text: 'Batch 2024 is on semester break until Fri 20 Nov',
+      sub: 'CSE, EEE, ME',
+      resume: 'Batch 2024 returns to class on Sat 21 Nov',
+    });
+    expect(w1[1]).toMatchObject({
+      text: 'CSE-24 has mid-term break, Thu 19 – Fri 27 Nov', // newest batch first
+      sub: undefined,
+    });
+    expect(w1[2]!.text).toBe('CSE-23 has mid-term break, Thu 19 – Fri 27 Nov');
+    expect(w1[1]!.resume).toBeUndefined(); // ends in week 2
+    const w2 = m.weeks[1]!.entries.map((e) => e.text);
+    expect(w2).toContain('CSE-23 is on mid-term break until Fri 27 Nov');
+    expect(m.weeks[1]!.entries.find((e) => e.text.startsWith('CSE-23'))!.resume).toBe(
+      'CSE-23 returns to class on Sat 28 Nov',
+    );
+    expect(w2).toContain('Short · Sun 22 – Wed 25 Nov · EEE off');
+    expect(w2).toContain(
+      'Gap · Thu 26 – Fri 27 Nov · classes off for CSE, offices open · expected date',
+    );
+    expect(m.weeks[2]!.entries.map((e) => e.text)).toEqual([
+      'Victory Day · Tue 1 Dec · everyone off',
+    ]);
+  });
+
+  it('an empty report has no entries, no bars and no legend types', () => {
     const e = buildPdfModel(buildReport(base));
-    expect(e.table).toEqual([]);
+    expect(e.weeks.every((w) => w.entries.length === 0)).toBe(true);
     expect(e.types).toEqual([]);
     expect(e.rows.every((x) => x.bars.length === 0)).toBe(true);
   });
