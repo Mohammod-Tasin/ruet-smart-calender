@@ -24,6 +24,7 @@ import { HolidayEditor, type EditorTarget } from './HolidayEditor';
 import { MonthGrid } from './MonthGrid';
 import { MonthHeader } from './MonthHeader';
 import { OccurrenceSheet } from './OccurrenceSheet';
+import { OverlapCard } from './OverlapLine';
 import { PastConfirm, PastNote } from './PastConfirm';
 import { Sheet } from './Sheet';
 import { useToast } from './Toast';
@@ -492,6 +493,7 @@ export function AdminCalendar({ offDays }: { offDays: number[] }) {
                 initialStart={dialog.date}
                 initialEnd={dialog.endDate ?? dialog.date}
                 offDays={offDays}
+                onEditExisting={(id) => openEditor({ kind: 'edit', id })}
                 onPickEndOnCalendar={(startDate) => {
                   setDialog(null);
                   setRangePick({ start: startDate });
@@ -646,6 +648,7 @@ function EasyAddHolidayForm({
   initialStart,
   initialEnd,
   onPickEndOnCalendar,
+  onEditExisting,
   onSaved,
 }: {
   structure: ApiStructure;
@@ -653,6 +656,7 @@ function EasyAddHolidayForm({
   initialEnd: string;
   offDays?: number[];
   onPickEndOnCalendar: (startDate: string) => void;
+  onEditExisting: (id: number) => void;
   onSaved: (msg: string, addedDept?: number | 'all') => void;
 }) {
   const [tab, setTab] = useState<'common' | 'dept-break' | 'sem-break'>('common');
@@ -727,15 +731,20 @@ function EasyAddHolidayForm({
     pickedBatch,
   ]);
   const pastMsg = pastAsk?.sig === sig ? pastAsk.message : null;
+  // Set when the server answered 409 OVERLAP; "Save anyway" resends with confirmOverlap.
+  const [overlapAsk, setOverlapAsk] = useState<{ conflicts: Conflict[]; sig: string } | null>(null);
+  const overlaps = overlapAsk?.sig === sig ? overlapAsk.conflicts : null;
+  const confirmOverlap = overlaps ? { confirmOverlap: true } : {};
   const confirmPast = pastMsg !== null ? { confirmPast: true } : {};
   // A rejected save shows the past warning (the next Save confirms it) or the plain error.
-  function reject(r: { code?: string; message: string }) {
+  function reject(r: { code?: string; message: string; conflicts?: Conflict[] }) {
+    if (r.code === 'OVERLAP' && r.conflicts) return setOverlapAsk({ conflicts: r.conflicts, sig });
     if (r.code === 'PAST_CONFIRM') return setPastAsk({ message: r.message, sig });
     setError(r.message);
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
 
     if (tab === 'common') {
@@ -817,7 +826,7 @@ function EasyAddHolidayForm({
             startDate: start,
             endDate: end,
             audience: [{ scopeType: 'ALL', scopeId: null }],
-            confirmOverlap: true,
+            ...confirmOverlap,
             ...confirmPast,
           },
         });
@@ -852,7 +861,7 @@ function EasyAddHolidayForm({
           startDate: start,
           endDate: end,
           audience,
-          confirmOverlap: true,
+          ...confirmOverlap,
           ...confirmPast,
         },
       });
@@ -878,7 +887,7 @@ function EasyAddHolidayForm({
         startDate: semStart,
         endDate: semBreakEnd,
         audience,
-        confirmOverlap: true,
+        ...confirmOverlap,
         ...confirmPast,
       },
     });
@@ -1322,6 +1331,15 @@ function EasyAddHolidayForm({
         <p role="alert" className="text-xs font-medium text-red-700 dark:text-red-400">
           {error}
         </p>
+      )}
+      {overlaps && (
+        <OverlapCard
+          conflicts={overlaps}
+          busy={saving}
+          onEdit={onEditExisting}
+          onSaveAnyway={() => void submit()}
+          onCancel={() => setOverlapAsk(null)}
+        />
       )}
       {pastMsg && <PastNote message={pastMsg} />}
 

@@ -52,6 +52,16 @@ describe('restored Phase 14 pieces stay wired in', () => {
     expect(s).toContain('PastConfirm');
     expect(s.match(/confirmPast: true/g)?.length).toBe(1); // only the "after the admin confirmed" spread
   });
+  test('overlap warning: the add form never forces confirmOverlap and shows the 409 card', () => {
+    const s = src('src/components/AdminCalendar.tsx');
+    expect(s).not.toMatch(/^s*confirmOverlap: true,$/m);
+    expect(s).toContain("'OVERLAP'");
+    expect(s).toContain('<OverlapCard');
+    const card = src('src/components/OverlapLine.tsx');
+    for (const t of ['Edit existing', 'Save anyway', 'Cancel', 'Set by {c.updatedBy.name}']) {
+      expect(card, t).toContain(t);
+    }
+  });
   test('month grid widens bars over weekly off days', () => {
     const s = src('src/components/MonthGrid.tsx');
     expect(s).toContain('extendWithAdjacentOffDays');
