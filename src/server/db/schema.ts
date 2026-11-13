@@ -33,6 +33,7 @@ export const departments = pgTable('departments', {
     .references(() => faculties.id),
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
+  studentCount: integer('student_count').notNull().default(60),
 });
 
 export const series = pgTable(
@@ -44,6 +45,7 @@ export const series = pgTable(
       .references(() => departments.id),
     intakeYear: integer('intake_year').notNull(),
     isActive: boolean('is_active').notNull().default(true),
+    brothersCount: integer('brothers_count').notNull().default(0),
   },
   (t) => [
     unique().on(t.departmentId, t.intakeYear),
@@ -56,6 +58,8 @@ export const admins = pgTable('admins', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(), // always stored lowercased
   passwordHash: text('password_hash').notNull(),
+  /** MODERATOR: everything incl. managing admins. ADMIN: semester status only. */
+  role: text('role', { enum: ['MODERATOR', 'ADMIN'] }).notNull().default('ADMIN'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -262,6 +266,7 @@ export const academicSettings = pgTable(
   {
     id: integer('id').primaryKey(),
     structure: jsonb('structure').$type<JourneyStructure>().notNull(),
+    femaleStudentPercentage: integer('female_student_percentage').notNull().default(15),
     updatedBy: integer('updated_by').references(() => admins.id), // null for the initial row
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

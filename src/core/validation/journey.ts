@@ -25,7 +25,12 @@ export const structureSchema = z
   .refine((s) => s.some((b) => b.phase === 'CLASS'), 'needs at least one CLASS block')
   .refine((s) => s.some((b) => b.phase === 'EXAM'), 'needs at least one EXAM block');
 
-export const putSettingsSchema = z.object({ structure: structureSchema });
+export const putSettingsSchema = z.object({
+  structure: structureSchema.optional(),
+  femaleStudentPercentage: z.number().int().min(0).max(100).optional(),
+  departmentCounts: z.record(z.string(), z.number().int().min(0).max(10000)).optional(),
+  brothersCounts: z.record(z.string(), z.number().int().min(0).max(10000)).optional(),
+});
 
 /** Same position for many series at once (a whole intake, or a few). */
 export const bulkPositionsSchema = z

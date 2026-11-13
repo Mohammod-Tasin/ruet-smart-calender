@@ -1,6 +1,7 @@
+import { ADMIN_HOLIDAY_CATEGORY, isModerator } from '@/core/auth/roles';
 import { confirmPastSchema, formatIssues, patchHolidaySchema } from '@/core/validation/holiday';
 import { internalError, jsonError } from '@/server/http/errors';
-import { guardMutation, requireAdmin } from '@/server/http/guard';
+import { guardMutation, requireAdmin, requireModerator } from '@/server/http/guard';
 import { failure, okJson, parseId } from '@/server/http/result';
 import { deleteHoliday, getHoliday, updateHoliday } from '@/server/services/holidays';
 
@@ -10,7 +11,7 @@ export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{ id: string }> }; // params is a Promise in this Next.js version
 
 export async function GET(req: Request, ctx: Ctx) {
-  const auth = await requireAdmin(req);
+  const auth = await requireModerator(req);
   if (!auth.ok) return auth.response;
   const id = parseId((await ctx.params).id);
   if (id === null) return jsonError(400, 'BAD_REQUEST', 'Invalid id.');
@@ -26,7 +27,7 @@ export async function GET(req: Request, ctx: Ctx) {
 export async function PATCH(req: Request, ctx: Ctx) {
   const guard = await guardMutation(req);
   if (!guard.ok) return guard.response;
-  const auth = await requireAdmin(req);
+  const auth = await requireModerator(req);
   if (!auth.ok) return auth.response;
   const id = parseId((await ctx.params).id);
   if (id === null) return jsonError(400, 'BAD_REQUEST', 'Invalid id.');
@@ -55,6 +56,13 @@ export async function DELETE(req: Request, ctx: Ctx) {
   if (!parsed.success) return jsonError(400, 'BAD_REQUEST', formatIssues(parsed.error));
 
   try {
+    if (!isModerator(auth.admin.role)) {
+      const existing = await getHoliday(id);
+      if (!existing.ok) return failure(existing);
+      if (existing.value.holiday.category !== ADMIN_HOLIDAY_CATEGORY) {
+        return jsonError(403, 'FORBIDDEN', 'Only moderators can delete holidays.');
+      }
+    }
     const result = await deleteHoliday(auth.admin.id, id, parsed.data);
     return result.ok ? okJson(result.value) : failure(result);
   } catch (e) {

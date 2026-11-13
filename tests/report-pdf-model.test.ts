@@ -6,6 +6,7 @@ import {
   groupByBatch,
   longRange,
   rangeWd,
+  weekShort,
   whoText,
 } from '@/core/report/pdf-model';
 
@@ -39,6 +40,9 @@ describe('formatting', () => {
     expect(rangeWd('2026-11-12', '2026-11-20')).toBe('Thu 12 – Fri 20 Nov');
     expect(rangeWd('2026-11-28', '2026-12-04')).toBe('Sat 28 Nov – Fri 4 Dec');
     expect(rangeWd('2026-12-16', '2026-12-16')).toBe('Wed 16 Dec');
+    expect(weekShort('2026-11-13', '2026-11-13')).toBe('Fri 13–13 Nov');
+    expect(weekShort('2026-11-14', '2026-11-20')).toBe('Sat 14–20 Nov');
+    expect(weekShort('2026-11-28', '2026-12-04')).toBe('Sat 28 Nov – 4 Dec');
   });
 });
 
@@ -110,31 +114,107 @@ describe('buildPdfModel', () => {
   const m = buildPdfModel(r);
 
   it('has the title', () => {
-    expect(m.title).toBe('RUET Holidays & Breaks · 14 Nov – 4 Dec 2026');
+    expect(m.title).toBe('14 Nov – 4 Dec 2026');
   });
 
-  it('summary lists who is off per week and type, no dates', () => {
-    expect(m.summary.map((l) => [l.week, l.parts.map((p) => [p.label, p.who])])).toEqual([
-      [
-        'Week 1 · 14–20 Nov',
-        [
-          ['Mid-term break', 'CSE-23, CSE-24'],
-          ['Semester break', 'Batch 2024 (CSE, EEE, ME)'],
-        ],
-      ],
-      [
-        'Week 2 · 21–27 Nov',
-        [
-          ['Mid-term break', 'CSE-23, CSE-24'],
-          ['Class suspension', 'EEE-23, EEE-24'],
-          ['Unofficial break', 'CSE-23, CSE-24'],
-        ],
-      ],
-      ['Week 3 · 28 Nov – 4 Dec', [['Holiday', 'Victory Day (Everyone)']]],
+  it('uses monthly report title and retains downloadedAt when specified', () => {
+    const monthly = buildPdfModel({
+      ...r,
+      monthTitle: 'November 2026',
+      downloadedAt: '2026-11-13',
+      statusSummary: {
+        CLASS: 31,
+        MID_BREAK: 1,
+        VIVA: 2,
+        EXAM: 11,
+        SEMESTER_BREAK: 13,
+      },
+    });
+    expect(monthly.title).toBe('November 2026');
+    expect(monthly.reportDate).toBe(r.from);
+    expect(monthly.downloadedAt).toBe('2026-11-13');
+    expect(monthly.statusSummary).toEqual([
+      { key: 'CLASS', label: 'Class', count: 31 },
+      { key: 'MID_BREAK', label: 'Mid-term break', count: 1 },
+      { key: 'VIVA', label: 'Board Viva', count: 2 },
+      { key: 'EXAM', label: 'Final', count: 11 },
+      { key: 'SEMESTER_BREAK', label: 'Semester break', count: 13 },
     ]);
-    expect(m.summary[0]!.parts.map((p) => p.category)).toEqual(['MID_BREAK', 'SEMESTER_BREAK']);
+  });
+
+  it('summary lists who is off per week and type, with dates', () => {
+    expect(m.summary.map((l) => [l.week, l.parts.map((p) => [p.date, p.label, p.who])])).toEqual([
+      [
+        'Week 1 · Sat 14–20 Nov',
+        [
+          ['Fri 13–20 Nov', 'Semester break', 'Batch 2024 (CSE, EEE, ME)'],
+          ['Thu 19–27 Nov', 'Mid-term break', 'CSE-23, CSE-24'],
+        ],
+      ],
+      [
+        'Week 2 · Sat 21–27 Nov',
+        [
+          ['Thu 19–27 Nov', 'Mid-term break', 'CSE-23, CSE-24'],
+          ['Sun 22–25 Nov', 'Class suspension', 'EEE-23, EEE-24'],
+          ['Thu 26–27 Nov', 'Unofficial break', 'CSE-23, CSE-24'],
+        ],
+      ],
+      ['Week 3 · Sat 28 Nov – 4 Dec', [['Tue 1 Dec', 'Holiday', 'Victory Day (Everyone)']]],
+    ]);
+    expect(m.summary[0]!.parts.map((p) => p.category)).toEqual(['SEMESTER_BREAK', 'MID_BREAK']);
     const e = buildPdfModel(buildReport(base));
     expect(e.summary.every((l) => l.parts.length === 0)).toBe(true);
+  });
+
+  it('calculates student counts and female student counts in the summary table', () => {
+    const customSeries: ReportSeries[] = [
+      { id: 1, label: 'CSE-23', departmentId: 1, intakeYear: 2023, studentCount: 180, brothersCount: 25 },
+      { id: 2, label: 'CE-23', departmentId: 2, intakeYear: 2023, studentCount: 180, brothersCount: 15 },
+      { id: 3, label: 'ARCH-23', departmentId: 3, intakeYear: 2023, studentCount: 30, brothersCount: 5 },
+      { id: 4, label: 'IPE-23', departmentId: 4, intakeYear: 2023, studentCount: 60, brothersCount: 8 },
+    ];
+    const report = buildReport({
+      ...base,
+      series: customSeries,
+      femaleStudentPercentage: 15,
+      breaks: [
+        // CSE-23 (180) + ARCH-23 (30) = 210 students; 15% female = 32
+        brk('MID_BREAK', '2026-11-14', '2026-11-20', 1, 4),
+        brk('MID_BREAK', '2026-11-14', '2026-11-20', 3, 4),
+        // IPE-23 (60) = 60 students; 15% female = 9
+        brk('SEMESTER_BREAK', '2026-11-14', '2026-11-20', 4, 3),
+      ],
+    });
+    const model = buildPdfModel(report);
+    const w1 = model.summary[0]!;
+    expect(w1.parts.length).toBe(2);
+    const midBreak = w1.parts.find((p) => p.category === 'MID_BREAK')!;
+    expect(midBreak.studentCount).toBe(210);
+    expect(midBreak.boysCount).toBe(178); // 210 - 32 = 178
+    expect(midBreak.femaleCount).toBe(32); // Math.round(210 * 0.15) = 32
+    expect(midBreak.brothersCount).toBe(30); // 25 + 5 = 30
+
+    const semBreak = w1.parts.find((p) => p.category === 'SEMESTER_BREAK')!;
+    expect(semBreak.studentCount).toBe(60);
+    expect(semBreak.boysCount).toBe(51); // 60 - 9 = 51
+    expect(semBreak.femaleCount).toBe(9); // Math.round(60 * 0.15) = 9
+    expect(semBreak.brothersCount).toBe(8);
+
+    expect(w1.totalStudentCount).toBe(270);
+    expect(w1.totalBoysCount).toBe(229); // 270 - 41 = 229
+    expect(w1.totalBrothersCount).toBe(38); // 25 + 5 + 8 = 38
+  });
+
+  it('uses selected from date instead of today as reportDate and starting week', () => {
+    const custom = buildReport({
+      ...base,
+      from: '2026-11-19',
+      month: '2026-11',
+      downloadedAt: '2026-11-19',
+    });
+    const model = buildPdfModel(custom);
+    expect(model.reportDate).toBe('2026-11-19');
+    expect(model.summary[0]!.week).toContain('Thu 19–20 Nov');
   });
 
   it('writes one plain sentence per break per week, with departments and the return day', () => {

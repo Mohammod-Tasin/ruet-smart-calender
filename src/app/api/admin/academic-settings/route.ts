@@ -1,7 +1,7 @@
 import { putSettingsSchema } from '@/core/validation/journey';
 import { internalError } from '@/server/http/errors';
 import { requireAdmin } from '@/server/http/guard';
-import { adminMutation } from '@/server/http/mutation';
+import { moderatorMutation } from '@/server/http/mutation';
 import { okJson } from '@/server/http/result';
 import { getSettings, putSettings } from '@/server/services/journey';
 
@@ -19,5 +19,13 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  return adminMutation(req, putSettingsSchema, (admin, body) => putSettings(admin, body.structure));
+  return moderatorMutation(req, putSettingsSchema, (admin, body) =>
+    putSettings(
+      admin,
+      body.structure,
+      body.femaleStudentPercentage,
+      body.departmentCounts,
+      body.brothersCounts,
+    ),
+  );
 }

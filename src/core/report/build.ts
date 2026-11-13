@@ -1,5 +1,20 @@
 import { weekdayOf } from '@/core/calendar/hijri';
-import { reportWindows, type ReportWindow } from './windows';
+import { monthWindows, reportWindows, type ReportWindow } from './windows';
+
+const MONTHS_LONG = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 
 export const REPORT_CATEGORIES = [
   'HOLIDAY',
@@ -39,6 +54,8 @@ export interface ReportSeries {
   label: string; // "CSE-23"
   departmentId: number;
   intakeYear: number;
+  studentCount?: number;
+  brothersCount?: number;
 }
 
 export interface ReportItem {
@@ -70,9 +87,13 @@ export interface ReportWeek extends ReportWindow {
 export interface HolidayReport {
   from: string;
   to: string;
-  weeks: [ReportWeek, ReportWeek, ReportWeek];
+  monthTitle?: string;
+  downloadedAt?: string;
+  statusSummary?: Record<string, number>;
+  femaleStudentPercentage?: number;
+  weeks: ReportWeek[];
   /** Per category: count per week (items for holidays, series for breaks). */
-  glance: { category: ReportCategory; counts: [number, number, number] }[];
+  glance: { category: ReportCategory; counts: number[] }[];
   weeklyOff: string[]; // ["Thursday", "Friday"]
   weeklyOffDays: number[]; // JS weekdays
   /** Active series (lets a layout group breaks by batch). */
@@ -81,7 +102,12 @@ export interface HolidayReport {
 }
 
 export interface ReportInput {
-  from: string;
+  from?: string;
+  to?: string;
+  month?: string;
+  downloadedAt?: string;
+  statusSummary?: Record<string, number>;
+  femaleStudentPercentage?: number;
   holidays: ReportHoliday[];
   breaks: ReportBreak[];
   series: ReportSeries[]; // ACTIVE series only
@@ -127,8 +153,20 @@ export function describeSeries(ids: number[], all: ReportSeries[]): string {
 const semLabel = (n: number) => `${Math.ceil(n / 2)}-${n % 2 ? 1 : 2}`;
 
 export function buildReport(input: ReportInput): HolidayReport {
-  const windows = reportWindows(input.from);
+  const ym =
+    input.month || (/^\d{4}-(0[1-9]|1[0-2])$/.test(input.from ?? '') ? input.from : null);
+  const startFrom =
+    input.downloadedAt || (input.from && !/^\d{4}-(0[1-9]|1[0-2])$/.test(input.from) ? input.from : undefined);
+  const windows = ym ? monthWindows(ym, startFrom) : reportWindows(input.from ?? '');
   const flagged = new Set(input.weeklyOff);
+
+  let monthTitle: string | undefined;
+  if (ym) {
+    const [y, m] = ym.split('-').map(Number);
+    if (y !== undefined && m !== undefined) {
+      monthTitle = `${MONTHS_LONG[m - 1]} ${y}`;
+    }
+  }
 
   const holidayItems: ReportItem[] = input.holidays
     .filter((h) => (REPORT_CATEGORIES as readonly string[]).includes(h.category))
@@ -190,13 +228,17 @@ export function buildReport(input: ReportInput): HolidayReport {
     category,
     counts: weeks.map((w) =>
       w.items.filter((i) => i.category === category).reduce((n, i) => n + (i.seriesCount ?? 1), 0),
-    ) as [number, number, number],
+    ),
   }));
 
   const byId = new Map(input.series.map((s) => [s.id, s.label]));
   return {
     from: windows[0]!.start,
-    to: windows[2]!.end,
+    to: windows[windows.length - 1]!.end,
+    monthTitle,
+    downloadedAt: input.downloadedAt,
+    statusSummary: input.statusSummary,
+    femaleStudentPercentage: input.femaleStudentPercentage ?? 15,
     weeks,
     glance,
     weeklyOff: [...input.weeklyOff].sort().map((d) => DAY_NAMES[d]!),

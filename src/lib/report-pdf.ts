@@ -1,6 +1,44 @@
 import type { jsPDF } from 'jspdf';
+import { MONTHS_SHORT } from '@/core/calendar/months';
 import type { HolidayReport, ReportCategory } from '@/core/report/build';
 import { buildPdfModel } from '@/core/report/pdf-model';
+
+const WD_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS_FULL = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+export function formatReportDate(iso: string): string {
+  const clean = iso.slice(0, 10);
+  const [y, m, d] = clean.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const dateObj = new Date(Date.UTC(y, m - 1, d));
+  const wd = WD_FULL[dateObj.getUTCDay()];
+  const mon = MONTHS_FULL[m - 1];
+  return `${wd}, ${d} ${mon} ${y}`;
+}
+
+export function formatReportDateShort(iso: string): string {
+  const clean = iso.slice(0, 10);
+  const [y, m, d] = clean.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const mon = MONTHS_SHORT[m - 1];
+  return `${d} ${mon} ${y}`;
+}
+
+export const formatDownloadDate = formatReportDate;
+export const formatDownloadDateShort = formatReportDateShort;
 
 // The report PDF, drawn directly with jsPDF text (A4 portrait). No screenshot of the page: it
 // does not depend on html2canvas / foreignObject, so it cannot come out blank in the browser.
@@ -26,8 +64,14 @@ const DOT: Record<ReportCategory, string> = {
   SUSPENDED_WEEK: '#64748b',
   UNOFFICIAL_BREAK: '#d4d4d8',
 };
+const PHASE_DOT: Record<string, string> = {
+  CLASS: '#10b981',
+  MID_BREAK: '#f97316',
+  VIVA: '#a855f7',
+  EXAM: '#3b82f6',
+  SEMESTER_BREAK: '#e11d48',
+};
 const GREY = '#52525b';
-const GREEN = '#166534';
 
 interface Style {
   size: number; // pt
@@ -140,90 +184,278 @@ export function drawReport(pdf: jsPDF, report: HolidayReport) {
   const w = new Writer(pdf);
 
   const TITLE: Style = { size: 17, bold: true };
-  const SUM_HEAD: Style = { size: 11.5, bold: true };
-  const SUM: Style = { size: 9.5 };
-  const WEEK: Style = { size: 14, bold: true };
-  const ENTRY: Style = { size: 11, bold: true };
-  const SUB: Style = { size: 9, color: GREY };
-  const BACK: Style = { size: 9, color: GREEN };
+  const SECTION_HEAD: Style = { size: 11.5, bold: true, color: '#18181b' };
+  const SUM: Style = { size: 9 };
+  const SUM_LABEL: Style = { size: 9, bold: true };
+  const SUB: Style = { size: 8.5, color: GREY };
   const NOTE: Style = { size: 8.5, color: GREY };
 
   // Title
   const title = w.wrap(m.title, TITLE, CONTENT_W);
   w.ensure(w.height(title, TITLE));
   w.draw(title, ML, w.y, TITLE);
-  w.y += w.height(title, TITLE) + 2;
+  w.y += w.height(title, TITLE) + 1.5;
 
-  // Summary: who is off, per week and type
-  const LABEL_W = 36;
-  const whoX = ML + 5 + LABEL_W + 2;
-  for (const week of m.summary) {
-    const head = w.wrap(week.week, SUM_HEAD, CONTENT_W);
-    const rows = week.parts.map((p) => {
-      const label = w.wrap(p.label, SUM, LABEL_W);
-      const who = w.wrap(p.who, SUM, PAGE_W - ML - whoX);
-      return { p, label, who, h: Math.max(w.height(label, SUM), w.height(who, SUM)) + 1.4 };
-    });
-    const none = w.wrap('No breaks', SUM, CONTENT_W);
-    // The heading stays with its first line.
-    w.ensure(w.height(head, SUM_HEAD) + (rows[0]?.h ?? w.height(none, SUM) + 1.4));
-    w.y += 2.5;
-    w.draw(head, ML, w.y, SUM_HEAD);
-    w.y += w.height(head, SUM_HEAD) + 0.8;
-    if (rows.length === 0) {
-      w.draw(none, ML, w.y, { ...SUM, color: GREY });
-      w.y += w.height(none, SUM) + 1.4;
-    }
-    for (const r of rows) {
-      w.ensure(r.h);
-      w.dot(r.p.category, ML, w.y, SUM);
-      w.draw(r.label, ML + 5, w.y, SUM);
-      w.draw(r.who, whoX, w.y, SUM);
-      w.y += r.h;
-    }
+  const dateToShow = m.reportDate ?? m.downloadedAt;
+  if (dateToShow) {
+    const repText = `Report date: ${formatReportDate(dateToShow)}`;
+    const repLines = w.wrap(repText, SUB, CONTENT_W);
+    w.ensure(w.height(repLines, SUB));
+    w.draw(repLines, ML, w.y, SUB);
+    w.y += w.height(repLines, SUB) + 2.5;
+  } else {
+    w.y += 1;
   }
 
-  // Details: one section per week
-  const EX = ML + 6; // text x next to the dot
-  for (const week of m.weeks) {
-    const head = w.wrap(week.heading, WEEK, CONTENT_W);
-    const items = week.entries.map((e) => {
-      const text = w.wrap(e.text, ENTRY, PAGE_W - ML - EX);
-      const sub = e.sub ? w.wrap(e.sub, SUB, PAGE_W - ML - EX) : [];
-      const back = e.resume ? w.wrap(e.resume, BACK, PAGE_W - ML - EX) : [];
-      return {
-        e,
-        text,
-        sub,
-        back,
-        h: w.height(text, ENTRY) + w.height(sub, SUB) + w.height(back, BACK) + 2.4,
-      };
+  // Department status summary (e.g. 31 Class · 1 Mid-term break · 2 Board Viva · 11 Final · 13 Semester break)
+  if (m.statusSummary && m.statusSummary.length > 0) {
+    const items = m.statusSummary;
+    const boxH = 8.5;
+    w.ensure(boxH + 3);
+    const boxY = w.y;
+
+    // Subtle container card
+    pdf.setFillColor(250, 250, 250);
+    pdf.setDrawColor(228, 228, 231);
+    pdf.setLineWidth(0.3);
+    pdf.roundedRect(ML, boxY, CONTENT_W, boxH, 1.5, 1.5, 'FD');
+
+    const colW = CONTENT_W / items.length;
+    items.forEach((it, i) => {
+      const colLeft = ML + i * colW;
+
+      // Divider between columns
+      if (i > 0) {
+        pdf.setDrawColor(228, 228, 231);
+        pdf.setLineWidth(0.25);
+        pdf.line(colLeft, boxY + 1.5, colLeft, boxY + boxH - 1.5);
+      }
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      const countStr = `${it.count} `;
+      const countW = pdf.getTextWidth(countStr);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      const labelW = pdf.getTextWidth(it.label);
+
+      const totalW = 3.5 + countW + labelW;
+      const startX = colLeft + (colW - totalW) / 2;
+      const textY = boxY + boxH / 2 + 1.1;
+
+      // Color dot
+      const [r, g, b] = rgb(PHASE_DOT[it.key] ?? '#71717a');
+      pdf.setFillColor(r, g, b);
+      pdf.circle(startX + 1.1, boxY + boxH / 2, 1.1, 'F');
+
+      // Bold count
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(24, 24, 27);
+      pdf.text(countStr, startX + 3.4, textY);
+
+      // Label
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(63, 63, 70);
+      pdf.text(it.label, startX + 3.4 + countW, textY);
     });
-    const empty = w.wrap('No holidays or breaks.', { size: 10.5 }, CONTENT_W);
-    w.ensure(w.height(head, WEEK) + 2 + (items[0]?.h ?? w.height(empty, { size: 10.5 })));
-    w.y += 6;
-    w.draw(head, ML, w.y, WEEK);
-    w.y += w.height(head, WEEK) + 0.6;
+
+    w.y += boxH + 3.5;
+  }
+
+  // Summary: who is off, per week and type (in a structured table format)
+  const sumTitle = w.wrap('Monthly Summary · At a Glance', SECTION_HEAD, CONTENT_W);
+  w.ensure(w.height(sumTitle, SECTION_HEAD) + 16);
+  w.y += 2;
+  w.draw(sumTitle, ML, w.y, SECTION_HEAD);
+  w.y += w.height(sumTitle, SECTION_HEAD) + 2;
+
+  const C1_W = 28;
+  const C2_W = 34;
+  const C3_W = 76;
+  const C4_W = 24;
+  const C5_W = CONTENT_W - C1_W - C2_W - C3_W - C4_W; // 24mm
+  const X0 = ML;
+  const X1 = ML + C1_W;
+  const X2 = X1 + C2_W;
+  const X3 = X2 + C3_W;
+  const X4 = X3 + C4_W;
+  const X5 = X4 + C5_W;
+
+  const TH_STYLE: Style = { size: 8.5, bold: true, color: '#3f3f46' };
+  const TH_H = 6.2;
+  const WEEK_ROW_H = 6.2;
+  const WEEK_ROW_TITLE_STYLE: Style = { size: 8.5, bold: true, color: '#0f172a' };
+  const DATE_STYLE: Style = { size: 8.5, color: '#27272a' };
+
+  const drawTableHeader = (topY: number) => {
+    pdf.setFillColor(244, 244, 245);
+    pdf.rect(X0, topY, CONTENT_W, TH_H, 'F');
+
+    pdf.setDrawColor(212, 212, 216);
+    pdf.setLineWidth(0.3);
+    pdf.rect(X0, topY, CONTENT_W, TH_H);
+
+    pdf.setDrawColor(228, 228, 231);
+    pdf.setLineWidth(0.2);
+    pdf.line(X1, topY + 1, X1, topY + TH_H - 1);
+    pdf.line(X2, topY + 1, X2, topY + TH_H - 1);
+    pdf.line(X3, topY + 1, X3, topY + TH_H - 1);
+    pdf.line(X4, topY + 1, X4, topY + TH_H - 1);
+
+    const textY = topY + 1.3;
+    w.draw(['Date'], X0 + 2.5, textY, TH_STYLE);
+    w.draw(['Event Type'], X1 + 2.5, textY, TH_STYLE);
+    w.draw(['Batches & Departments'], X2 + 2.5, textY, TH_STYLE);
+    w.draw(['Student Count'], X3 + 2, textY, TH_STYLE);
+    w.draw(['Bro count'], X4 + 2, textY, TH_STYLE);
+  };
+
+  drawTableHeader(w.y);
+  w.y += TH_H;
+
+  m.summary.forEach((week) => {
+    const partsInfo = week.parts.map((p) => {
+      const dateLines = w.wrap(p.date, DATE_STYLE, C1_W - 5);
+      const labelLines = w.wrap(p.label, SUM_LABEL, C2_W - 5);
+      const whoLines = w.wrap(p.who, SUM, C3_W - 5);
+      const countLines =
+        p.boysCount > 0
+          ? [
+              {
+                text: p.boysCount.toLocaleString(),
+                style: { size: 8.5, bold: true, color: '#18181b' },
+              },
+            ]
+          : [{ text: '—', style: { size: 8.5, color: '#a1a1aa' } }];
+      const brothersLines =
+        p.brothersCount > 0
+          ? [
+              {
+                text: p.brothersCount.toLocaleString(),
+                style: { size: 8.5, bold: true, color: '#18181b' },
+              },
+            ]
+          : [{ text: '—', style: { size: 8.5, color: '#a1a1aa' } }];
+      const countH = countLines.reduce((acc, l) => acc + w.lineH(l.style), 0);
+      const brothersH = brothersLines.reduce((acc, l) => acc + w.lineH(l.style), 0);
+      const textH = Math.max(
+        w.height(dateLines, DATE_STYLE),
+        w.height(labelLines, SUM_LABEL),
+        w.height(whoLines, SUM),
+        countH,
+        brothersH,
+      );
+      const rowH = Math.max(textH + 2.6, 5.8);
+      return { p, dateLines, labelLines, whoLines, countLines, brothersLines, rowH };
+    });
+
+    const partsH =
+      partsInfo.length > 0 ? partsInfo.reduce((acc, it) => acc + it.rowH, 0) : 6.0;
+    const weekTotalH = WEEK_ROW_H + partsH;
+
+    if (w.y + weekTotalH > BOTTOM) {
+      w.pdf.addPage();
+      w.y = MT;
+      drawTableHeader(w.y);
+      w.y += TH_H;
+    }
+
+    // Week header row
+    const weekTop = w.y;
+    pdf.setFillColor(241, 245, 249);
+    pdf.rect(X0, weekTop, CONTENT_W, WEEK_ROW_H, 'F');
+
+    w.draw([week.week], X0 + 2.5, weekTop + 1.3, WEEK_ROW_TITLE_STYLE);
+
+    const totalStr = `Total students: ${week.totalBoysCount.toLocaleString()}  ·  Total brothers: ${week.totalBrothersCount.toLocaleString()}`;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(51, 65, 85);
+    pdf.text(totalStr, X5 - 3, weekTop + 4.2, { align: 'right' });
+
+    pdf.setDrawColor(203, 213, 225);
+    pdf.setLineWidth(0.25);
+    pdf.line(X0, weekTop, X5, weekTop);
+    pdf.line(X0, weekTop, X0, weekTop + WEEK_ROW_H);
+    pdf.line(X5, weekTop, X5, weekTop + WEEK_ROW_H);
+    pdf.line(X0, weekTop + WEEK_ROW_H, X5, weekTop + WEEK_ROW_H);
+
+    w.y += WEEK_ROW_H;
+
+    if (partsInfo.length === 0) {
+      const emptyH = 6.0;
+      const emptyTop = w.y;
+      w.draw(['No scheduled holidays or breaks'], X0 + 2.5, emptyTop + 1.4, {
+        size: 8.5,
+        color: GREY,
+      });
+
+      pdf.setDrawColor(212, 212, 216);
+      pdf.setLineWidth(0.25);
+      pdf.line(X0, emptyTop, X0, emptyTop + emptyH);
+      pdf.line(X5, emptyTop, X5, emptyTop + emptyH);
+      pdf.line(X0, emptyTop + emptyH, X5, emptyTop + emptyH);
+
+      w.y += emptyH;
+      return;
+    }
+
+    let curY = w.y;
+    partsInfo.forEach((part, pIdx) => {
+      if (pIdx > 0) {
+        pdf.setDrawColor(228, 228, 231);
+        pdf.setLineWidth(0.2);
+        pdf.line(X0, curY, X5, curY);
+      }
+      w.draw(part.dateLines, X0 + 2.5, curY + 1.2, DATE_STYLE);
+      w.draw(part.labelLines, X1 + 2.5, curY + 1.2, SUM_LABEL);
+      w.draw(part.whoLines, X2 + 2.5, curY + 1.2, SUM);
+
+      let countY = curY + 1.2;
+      part.countLines.forEach((cl) => {
+        w.draw([cl.text], X3 + 2, countY, cl.style);
+        countY += w.lineH(cl.style);
+      });
+
+      let brothersY = curY + 1.2;
+      part.brothersLines.forEach((bl) => {
+        w.draw([bl.text], X4 + 2, brothersY, bl.style);
+        brothersY += w.lineH(bl.style);
+      });
+
+      pdf.setDrawColor(228, 228, 231);
+      pdf.setLineWidth(0.2);
+      pdf.line(X1, curY, X1, curY + part.rowH);
+      pdf.line(X2, curY, X2, curY + part.rowH);
+      pdf.line(X3, curY, X3, curY + part.rowH);
+      pdf.line(X4, curY, X4, curY + part.rowH);
+
+      pdf.setDrawColor(212, 212, 216);
+      pdf.setLineWidth(0.25);
+      pdf.line(X0, curY, X0, curY + part.rowH);
+      pdf.line(X5, curY, X5, curY + part.rowH);
+
+      curY += part.rowH;
+    });
+
     pdf.setDrawColor(212, 212, 216);
     pdf.setLineWidth(0.25);
-    pdf.line(ML, w.y, PAGE_W - ML, w.y);
-    w.y += 1.6;
-    if (items.length === 0) {
-      w.draw(empty, ML, w.y, { size: 10.5, color: GREY });
-      w.y += w.height(empty, { size: 10.5 }) + 2;
-    }
-    for (const it of items) {
-      w.ensure(it.h);
-      const top = w.y + 1.2;
-      w.dot(it.e.category, ML, top, ENTRY);
-      w.draw(it.text, EX, top, ENTRY);
-      let y = top + w.height(it.text, ENTRY);
-      w.draw(it.sub, EX, y, SUB);
-      y += w.height(it.sub, SUB);
-      w.draw(it.back, EX, y, BACK);
-      w.y += it.h;
-    }
-  }
+    pdf.line(X0, curY, X5, curY);
+
+    w.y = curY;
+  });
+
+  w.y += 1.8;
+  const approxNote = w.wrap(
+    '* Note: Student counts are approximate and exclude estimated female students.',
+    { size: 7.5, color: '#71717a' },
+    CONTENT_W,
+  );
+  w.draw(approxNote, ML, w.y, { size: 7.5, color: '#71717a' });
+  w.y += w.height(approxNote, { size: 7.5 }) + 3;
 
   // Footer notes (kept together)
   const notes = [
@@ -236,14 +468,20 @@ export function drawReport(pdf: jsPDF, report: HolidayReport) {
   w.y += 6;
   w.draw(notes, ML, w.y, NOTE);
 
-  // "Page X of Y"
+  // "Page X of Y" and Report Date
   const n = pdf.getNumberOfPages();
+  const dateShort = (m.reportDate ?? m.downloadedAt)
+    ? formatReportDateShort(m.reportDate ?? m.downloadedAt!)
+    : '';
   for (let i = 1; i <= n; i++) {
     pdf.setPage(i);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(8.5);
     pdf.setTextColor(110, 110, 110);
-    pdf.text(`Page ${i} of ${n}`, PAGE_W / 2, PAGE_H - 7, { align: 'center' });
+    const footerText = dateShort
+      ? `Report date: ${dateShort}   ·   Page ${i} of ${n}`
+      : `Page ${i} of ${n}`;
+    pdf.text(footerText, PAGE_W / 2, PAGE_H - 7, { align: 'center' });
   }
 }
 

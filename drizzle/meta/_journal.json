@@ -57,6 +57,27 @@
       "when": 1793446807286,
       "tag": "0007_chubby_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794568362892,
+      "tag": "0008_black_white_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794572006216,
+      "tag": "0009_dear_texas_twister",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794575937582,
+      "tag": "0010_abandoned_toad_men",
+      "breakpoints": true
     }
   ]
 }

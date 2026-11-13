@@ -8,7 +8,7 @@ import { admins, sessions } from '../src/server/db/schema';
 import { connectAsOwner } from './lib/owner-db';
 import { askHidden } from './lib/prompt';
 
-async function create() {
+async function create(role: 'MODERATOR' | 'ADMIN') {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const name = (await rl.question('Name: ')).trim();
   const email = (await rl.question('Email: ')).trim().toLowerCase();
@@ -23,10 +23,12 @@ async function create() {
   try {
     const [row] = await db
       .insert(admins)
-      .values({ name, email, passwordHash: await hash(password) })
+      .values({ name, email, passwordHash: await hash(password), role })
       .onConflictDoNothing()
       .returning({ id: admins.id });
-    console.log(row ? `Created admin ${email} (id ${row.id}).` : `${email} already exists.`);
+    console.log(
+      row ? `Created ${role.toLowerCase()} ${email} (id ${row.id}).` : `${email} already exists.`,
+    );
   } finally {
     await pool.end();
   }
@@ -59,8 +61,13 @@ async function deactivate(rawEmail: string | undefined) {
 
 async function main() {
   const i = process.argv.indexOf('--deactivate');
-  if (i === -1) await create();
-  else await deactivate(process.argv[i + 1]);
+  if (i !== -1) return deactivate(process.argv[i + 1]);
+  const r = process.argv.indexOf('--role');
+  const rawRole = r !== -1 ? process.argv[r + 1]?.toUpperCase() : 'ADMIN';
+  if (rawRole !== 'ADMIN' && rawRole !== 'MODERATOR') {
+    throw new Error('Role must be ADMIN or MODERATOR.');
+  }
+  await create(rawRole);
 }
 
 main().catch((e) => {
