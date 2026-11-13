@@ -24,6 +24,7 @@ export interface StatusResponse {
   date: string;
   summary: Record<string, number>;
   series: StatusEntry[];
+  verifications?: Record<number, string>;
 }
 export interface PositionRow {
   id: number;
@@ -196,3 +197,35 @@ export const findSeries = (st: ApiStructure, deptCode: string, year: number) => 
   const d = st.departments.find((x) => x.code === deptCode);
   return d && st.series.find((s) => s.departmentId === d.id && s.intakeYear === year);
 };
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** True when `iso` is a valid timestamp within the last 7 days. */
+export function isVerifiedRecently(iso: string | undefined, nowMs: number = Date.now()): boolean {
+  if (!iso) return false;
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return false;
+  return nowMs - ts <= SEVEN_DAYS_MS;
+}
+
+const VERIFY_DATE_FMT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Dhaka',
+  day: 'numeric',
+  month: 'short',
+});
+const VERIFY_TIME_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Dhaka',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+});
+
+/** Compact date & time in Asia/Dhaka for the narrow batch column footer. */
+export function formatVerifiedParts(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { date: 'Invalid', time: '' };
+  return {
+    date: VERIFY_DATE_FMT.format(d),
+    time: VERIFY_TIME_FMT.format(d),
+  };
+}

@@ -38,6 +38,7 @@ import { getDb, type Executor } from '@/server/db/client';
 import { getStructure, invalidateStructureCache } from '@/server/db/queries';
 import {
   academicSettings,
+  batchVerifications,
   departments,
   series,
   seriesPositions,
@@ -205,8 +206,12 @@ async function loadAll(x: Executor, change?: ProposedChange) {
 
 /** One entry per active series, with its state on `date`. Series with no position are NONE. */
 export async function statusOn(date: string = todayInDhaka()) {
-  const { structure, journeys } = await loadAll(getDb());
-  const series = structure.series.map((s) => ({
+  const db = getDb();
+  const [{ structure, journeys }, verRows] = await Promise.all([
+    loadAll(db),
+    db.select().from(batchVerifications),
+  ]);
+  const seriesList = structure.series.map((s) => ({
     seriesId: s.id,
     series: seriesLabel(structure, s.id),
     departmentId: s.departmentId,
@@ -214,11 +219,51 @@ export async function statusOn(date: string = todayInDhaka()) {
     state: stateOn(journeys.get(s.id) ?? NO_JOURNEY, date),
   }));
   const summary: Record<string, number> = {};
-  for (const x of series) {
+  for (const x of seriesList) {
     const k = x.state.phase ?? x.state.status;
     summary[k] = (summary[k] ?? 0) + 1;
   }
-  return { date, summary, series };
+  const verifications: Record<number, string> = {};
+  for (const v of verRows) {
+    verifications[v.intakeYear] = v.verifiedAt.toISOString();
+  }
+  return { date, summary, series: seriesList, verifications };
+}
+
+/** Records that an admin verified the semester status for a whole intake batch (`intakeYear`). */
+export async function verifyBatch(
+  adminId: number,
+  intakeYear: number,
+): Promise<Result<{ intakeYear: number; verifiedAt: string }>> {
+  return getDb().transaction(async (tx) => {
+    const structure = await getStructure(tx);
+    if (!structure.series.some((s) => s.intakeYear === intakeYear)) {
+      return fail('NOT_FOUND', `No active series found for batch ${intakeYear}.`);
+    }
+    const [existing] = await tx
+      .select()
+      .from(batchVerifications)
+      .where(eq(batchVerifications.intakeYear, intakeYear));
+    const now = new Date();
+    const [row] = await tx
+      .insert(batchVerifications)
+      .values({ intakeYear, verifiedAt: now, verifiedBy: adminId })
+      .onConflictDoUpdate({
+        target: batchVerifications.intakeYear,
+        set: { verifiedAt: now, verifiedBy: adminId },
+      })
+      .returning();
+    await auditEntity(
+      tx,
+      adminId,
+      existing ? 'UPDATE' : 'CREATE',
+      'BATCH_VERIFICATION',
+      intakeYear,
+      existing ? { verifiedAt: existing.verifiedAt.toISOString() } : null,
+      { verifiedAt: row!.verifiedAt.toISOString() },
+    );
+    return ok({ intakeYear, verifiedAt: row!.verifiedAt.toISOString() });
+  });
 }
 
 /** Series whose journey has ended (state GRADUATED on `date`). Used by `npm run db:intake`. */

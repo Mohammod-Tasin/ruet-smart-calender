@@ -208,6 +208,7 @@ export function StatusBoard() {
               bySeries={bySeries}
               loading={loading}
               onCell={(e) => setOpen(e.seriesId)}
+              verifications={data?.verifications}
             />
           ) : (
             <p className="px-1 text-sm">Loading…</p>
