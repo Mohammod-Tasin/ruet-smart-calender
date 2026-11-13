@@ -86,7 +86,8 @@ export const auditEntity = (
     | 'RULE_EDIT'
     | 'SERIES_POSITION'
     | 'SERIES_SCHEDULE'
-    | 'ACADEMIC_SETTINGS',
+    | 'ACADEMIC_SETTINGS'
+    | 'ADMIN',
   entityId: number,
   before: unknown,
   after: unknown,

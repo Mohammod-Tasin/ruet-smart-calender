@@ -18,6 +18,8 @@ export interface DepartmentInfo {
   id: number;
   facultyId: number;
   code: string;
+  name?: string;
+  studentCount?: number;
 }
 
 export interface SeriesInfo {
@@ -25,6 +27,7 @@ export interface SeriesInfo {
   departmentId: number;
   intakeYear: number;
   isActive: boolean;
+  brothersCount?: number;
 }
 
 export interface Structure {

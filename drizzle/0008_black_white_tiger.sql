@@ -1,0 +1,2 @@
+ALTER TABLE "academic_settings" ADD COLUMN "female_student_percentage" integer DEFAULT 15 NOT NULL;--> statement-breakpoint
+ALTER TABLE "departments" ADD COLUMN "student_count" integer DEFAULT 60 NOT NULL;

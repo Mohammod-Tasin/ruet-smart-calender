@@ -6,7 +6,42 @@ import {
   type ReportSeries,
 } from '@/core/report/build';
 import { addDays, weekdayOf } from '@/core/calendar/hijri';
-import { reportWindows } from '@/core/report/windows';
+import { monthWindows, reportWindows } from '@/core/report/windows';
+
+describe('monthWindows', () => {
+  it('partitions November 2026 into 5 academic weeks ending on the last week Friday Dec 4', () => {
+    const w = monthWindows('2026-11');
+    expect(w).toEqual([
+      { start: '2026-11-01', end: '2026-11-06' },
+      { start: '2026-11-07', end: '2026-11-13' },
+      { start: '2026-11-14', end: '2026-11-20' },
+      { start: '2026-11-21', end: '2026-11-27' },
+      { start: '2026-11-28', end: '2026-12-04' },
+    ]);
+  });
+
+  it('partitions from download date (e.g. 13 Nov) to the end of the month last week (4 Dec)', () => {
+    const w = monthWindows('2026-11', '2026-11-13');
+    expect(w).toEqual([
+      { start: '2026-11-13', end: '2026-11-13' },
+      { start: '2026-11-14', end: '2026-11-20' },
+      { start: '2026-11-21', end: '2026-11-27' },
+      { start: '2026-11-28', end: '2026-12-04' },
+    ]);
+  });
+
+  it('partitions August 2026 where day 1 is a Saturday through the end of the last week (Sep 4)', () => {
+    const w = monthWindows('2026-08');
+    expect(w[0]).toEqual({ start: '2026-08-01', end: '2026-08-07' });
+    expect(w.at(-1)).toEqual({ start: '2026-08-29', end: '2026-09-04' });
+  });
+
+  it('handles leap year February 2028 through Friday Mar 3', () => {
+    const w = monthWindows('2028-02');
+    expect(w[0]!.start).toBe('2028-02-01');
+    expect(w.at(-1)!.end).toBe('2028-03-03');
+  });
+});
 
 describe('reportWindows', () => {
   it.each([
@@ -188,5 +223,34 @@ describe('buildReport', () => {
     expect(items).toHaveLength(2);
     expect(items[0]!.semesters).toBe('1-2, 2-2');
     expect(items[1]!.inclWeekend).toBe(false);
+  });
+
+  it('builds a monthly report from download date to the end of the month last week', () => {
+    const r = buildReport({
+      ...base,
+      month: '2026-11',
+      downloadedAt: '2026-11-13',
+    });
+    expect(r.monthTitle).toBe('November 2026');
+    expect(r.from).toBe('2026-11-13');
+    expect(r.to).toBe('2026-12-04');
+    expect(r.downloadedAt).toBe('2026-11-13');
+    expect(r.weeks).toHaveLength(4);
+    expect(r.weeks[0]!.start).toBe('2026-11-13');
+    expect(r.weeks[3]!.end).toBe('2026-12-04');
+  });
+
+  it('builds a full monthly report when from is month key or day 1', () => {
+    const r = buildReport({
+      ...base,
+      from: '2026-11',
+      month: '2026-11',
+    });
+    expect(r.monthTitle).toBe('November 2026');
+    expect(r.from).toBe('2026-11-01');
+    expect(r.to).toBe('2026-12-04');
+    expect(r.weeks).toHaveLength(5);
+    expect(r.weeks[0]!.start).toBe('2026-11-01');
+    expect(r.weeks[4]!.end).toBe('2026-12-04');
   });
 });

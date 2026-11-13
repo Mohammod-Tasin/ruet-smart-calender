@@ -1,5 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 import { SEED_RULES } from '../src/core/calendar/seed-rules';
+import { getDepartmentStudentCount } from '../src/core/report/students';
 import {
   admins,
   departments,
@@ -12,6 +13,21 @@ import {
 import { connectAsOwner } from './lib/owner-db';
 
 const ACTIVE_YEARS = [2021, 2022, 2023, 2024, 2025];
+
+const BROTHERS_SEED: Record<string, Record<number, number>> = {
+  BECM: { 2021: 0, 2022: 4, 2023: 1, 2024: 2, 2025: 1 },
+  CE:   { 2021: 6, 2022: 2, 2023: 9, 2024: 4, 2025: 1 },
+  CME:  { 2021: 2, 2022: 4, 2023: 0, 2024: 2, 2025: 0 },
+  CSE:  { 2021: 5, 2022: 1, 2023: 3, 2024: 3, 2025: 0 },
+  ECE:  { 2021: 0, 2022: 1, 2023: 0, 2024: 3, 2025: 0 },
+  EEE:  { 2021: 5, 2022: 1, 2023: 5, 2024: 4, 2025: 0 },
+  ETE:  { 2021: 3, 2022: 0, 2023: 2, 2024: 0, 2025: 0 },
+  IPE:  { 2021: 0, 2022: 1, 2023: 1, 2024: 1, 2025: 0 },
+  ME:   { 2021: 2, 2022: 4, 2023: 6, 2024: 2, 2025: 0 },
+  MSE:  { 2021: 1, 2022: 0, 2023: 0, 2024: 1, 2025: 0 },
+  MTE:  { 2021: 2, 2022: 2, 2023: 0, 2024: 2, 2025: 0 },
+  URP:  { 2021: 2, 2022: 0, 2023: 0, 2024: 0, 2025: 0 },
+};
 
 const SEED = [
   {
@@ -99,13 +115,19 @@ async function main() {
       for (const [code, name] of f.depts) {
         await db
           .insert(departments)
-          .values({ facultyId: fac.id, code, name })
+          .values({ facultyId: fac.id, code, name, studentCount: getDepartmentStudentCount(code) })
           .onConflictDoNothing();
         const [dept] = await db.select().from(departments).where(eq(departments.code, code));
         if (!dept) throw new Error(`department ${code} missing`);
         await db
           .insert(series)
-          .values(ACTIVE_YEARS.map((intakeYear) => ({ departmentId: dept.id, intakeYear })))
+          .values(
+            ACTIVE_YEARS.map((intakeYear) => ({
+              departmentId: dept.id,
+              intakeYear,
+              brothersCount: BROTHERS_SEED[code]?.[intakeYear] ?? 0,
+            })),
+          )
           .onConflictDoNothing();
       }
     }

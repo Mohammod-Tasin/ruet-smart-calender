@@ -52,13 +52,50 @@ describe('drawReport', () => {
   it('puts the title, summary, details and notes in the PDF as text', () => {
     const pdf = pdfOf(3);
     const raw = pdf.output();
-    expect(raw).toContain('RUET Holidays & Breaks');
+    expect(raw).toContain('14 Nov');
+    expect(raw).toContain('4 Dec 2026');
+    expect(raw).toContain('Date');
+    expect(raw).toContain('Event Type');
+    expect(raw).toContain('Batches & Departments');
+    expect(raw).toContain('Total students');
+    expect(raw).toContain('Total brothers');
+    expect(raw).toContain('Student Count');
+    expect(raw).toContain('Bro count');
+    expect(raw).toContain('approx');
     expect(raw).toContain('Mid-term break');
     expect(raw).toContain('Semester break');
     expect(raw).toContain('Victory Day');
-    expect(raw).toContain('returns to class');
     expect(raw).toContain('Series with no status are not included');
     expect(raw).toContain('Page 1 of 1');
+  });
+
+  it('draws the monthly title and downloaded date on the page', () => {
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    drawReport(
+      pdf,
+      buildReport({
+        ...input(3),
+        month: '2026-11',
+        downloadedAt: '2026-11-13',
+        statusSummary: {
+          CLASS: 31,
+          MID_BREAK: 1,
+          VIVA: 2,
+          EXAM: 11,
+          SEMESTER_BREAK: 13,
+        },
+      }),
+    );
+    const raw = pdf.output();
+    expect(raw).toContain('November 2026');
+    expect(raw).toContain('Report date: Friday, 13 November 2026');
+    expect(raw).toContain('Report date: 13 Nov 2026');
+    expect(raw).toContain('31');
+    expect(raw).toContain('Class');
+    expect(raw).toContain('Board Viva');
+    expect(raw).toContain('11');
+    expect(raw).toContain('Final');
+    expect(raw).toContain('13');
   });
 
   it('flows onto more pages and numbers them', () => {

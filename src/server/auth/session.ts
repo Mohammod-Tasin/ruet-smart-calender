@@ -1,6 +1,7 @@
 import 'server-only';
 import { and, eq, gt, lt } from 'drizzle-orm';
 import { SESSION_MAX_AGE_SECONDS } from '@/core/auth/cookie';
+import type { AdminRole } from '@/core/auth/roles';
 import { generateToken, hashToken } from '@/core/auth/token';
 import { getDb } from '@/server/db/client';
 import { admins, loginAttempts, sessions } from '@/server/db/schema';
@@ -9,6 +10,7 @@ export interface AdminSession {
   id: number;
   name: string;
   email: string;
+  role: AdminRole;
 }
 
 /** Creates a session and returns the RAW token (for the cookie). Only its hash is stored. */
@@ -31,6 +33,7 @@ export async function findSession(token: string): Promise<AdminSession | null> {
       id: admins.id,
       name: admins.name,
       email: admins.email,
+      role: admins.role,
     })
     .from(sessions)
     .innerJoin(admins, eq(admins.id, sessions.adminId))

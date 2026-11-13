@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { coveredSeriesIds } from '@/core/calendar/compress';
 import { parseOffDays, todayInDhaka } from '@/core/calendar/grid';
 import { addDays } from '@/core/calendar/hijri';
@@ -35,8 +35,14 @@ import {
   type ScheduleFields,
 } from '@/core/journey/schedule';
 import { getDb, type Executor } from '@/server/db/client';
-import { getStructure } from '@/server/db/queries';
-import { academicSettings, seriesPositions, seriesSemesterSchedule } from '@/server/db/schema';
+import { getStructure, invalidateStructureCache } from '@/server/db/queries';
+import {
+  academicSettings,
+  departments,
+  series,
+  seriesPositions,
+  seriesSemesterSchedule,
+} from '@/server/db/schema';
 import { getOffDays } from './off-days';
 import { listRules, ruleOccurrences } from './rules';
 import { auditEntity, fail, lockWrites, ok, type Result } from './shared';
@@ -565,7 +571,36 @@ export async function computeImpact(change: ProposedChange): Promise<{ groups: I
   return { groups: groupImpacts(items) };
 }
 
-export const getSettings = async () => ({ structure: await loadStructureSetting(getDb()) });
+export async function getFemaleStudentPercentage(x: Executor = getDb()): Promise<number> {
+  const [row] = await x.select().from(academicSettings).where(eq(academicSettings.id, 1));
+  return row?.femaleStudentPercentage ?? 15;
+}
+
+export const getSettings = async () => {
+  const [row] = await getDb().select().from(academicSettings).where(eq(academicSettings.id, 1));
+  const depts = await getDb().select().from(departments).orderBy(asc(departments.code));
+  const seriesRows = await getDb()
+    .select()
+    .from(series)
+    .where(eq(series.isActive, true))
+    .orderBy(asc(series.intakeYear));
+  return {
+    structure: row?.structure ?? DEFAULT_STRUCTURE,
+    femaleStudentPercentage: row?.femaleStudentPercentage ?? 15,
+    departments: depts.map((d) => ({
+      id: d.id,
+      code: d.code,
+      name: d.name,
+      studentCount: d.studentCount,
+    })),
+    series: seriesRows.map((s) => ({
+      id: s.id,
+      departmentId: s.departmentId,
+      intakeYear: s.intakeYear,
+      brothersCount: s.brothersCount ?? 0,
+    })),
+  };
+};
 
 // ---------------------------------------------------------------------------------------
 // Writes (lock, write, audit: one transaction)
@@ -704,44 +739,94 @@ export async function deletePosition(
   });
 }
 
-/** Rare: change the shared semester structure. Refused if it would orphan a saved position. */
+/** Rare: change the shared semester structure or report student settings. Refused if it would orphan a saved position. */
 export async function putSettings(
   adminId: number,
-  structure: JourneyStructure,
-): Promise<Result<{ structure: JourneyStructure }>> {
+  structure?: JourneyStructure,
+  femaleStudentPercentage?: number,
+  departmentCounts?: Record<string, number>,
+  brothersCounts?: Record<string, number>,
+): Promise<Result<{ structure: JourneyStructure; femaleStudentPercentage: number }>> {
   return getDb().transaction(async (tx) => {
     await lockWrites(tx);
-    const slots = buildSlots(structure);
-    const orphans = (await loadPositions(tx)).filter((p) => {
-      const [phase, weekNo] =
-        p.kind === 'SEMESTER_START' ? (['CLASS', 1] as const) : [p.phase, p.weekNo];
-      return !slots.some((s) => s.phase === phase && s.weekNo === weekNo);
-    });
-    if (orphans.length) {
-      const o = orphans[0]!;
-      return fail(
-        'UNPROCESSABLE',
-        `${orphans.length} saved position(s) would no longer exist in this structure (e.g. ${o.phase} week ${o.weekNo}). Delete or change them first.`,
-      );
+    const beforeRow = (await tx.select().from(academicSettings).where(eq(academicSettings.id, 1)))[0];
+    const beforeStructure = beforeRow?.structure ?? DEFAULT_STRUCTURE;
+    const finalStructure = structure ?? beforeStructure;
+    const finalFemalePercentage = femaleStudentPercentage ?? beforeRow?.femaleStudentPercentage ?? 15;
+
+    if (structure) {
+      const slots = buildSlots(structure);
+      const orphans = (await loadPositions(tx)).filter((p) => {
+        const [phase, weekNo] =
+          p.kind === 'SEMESTER_START' ? (['CLASS', 1] as const) : [p.phase, p.weekNo];
+        return !slots.some((s) => s.phase === phase && s.weekNo === weekNo);
+      });
+      if (orphans.length) {
+        const o = orphans[0]!;
+        return fail(
+          'UNPROCESSABLE',
+          `${orphans.length} saved position(s) would no longer exist in this structure (e.g. ${o.phase} week ${o.weekNo}). Delete or change them first.`,
+        );
+      }
     }
-    const before = await loadStructureSetting(tx);
+
     await tx
       .insert(academicSettings)
-      .values({ id: 1, structure, updatedBy: adminId })
+      .values({
+        id: 1,
+        structure: finalStructure,
+        femaleStudentPercentage: finalFemalePercentage,
+        updatedBy: adminId,
+      })
       .onConflictDoUpdate({
         target: academicSettings.id,
-        set: { structure, updatedBy: adminId, updatedAt: new Date() },
+        set: {
+          structure: finalStructure,
+          femaleStudentPercentage: finalFemalePercentage,
+          updatedBy: adminId,
+          updatedAt: new Date(),
+        },
       });
+
+    if (departmentCounts) {
+      for (const [code, count] of Object.entries(departmentCounts)) {
+        await tx
+          .update(departments)
+          .set({ studentCount: count })
+          .where(sql`UPPER(${departments.code}) = ${code.toUpperCase()}`);
+      }
+      invalidateStructureCache();
+    }
+
+    if (brothersCounts) {
+      for (const [sIdStr, bCount] of Object.entries(brothersCounts)) {
+        const sId = Number(sIdStr);
+        if (Number.isInteger(sId) && Number.isInteger(bCount) && bCount >= 0) {
+          await tx
+            .update(series)
+            .set({ brothersCount: bCount })
+            .where(eq(series.id, sId));
+        }
+      }
+      invalidateStructureCache();
+    }
+
     await auditEntity(
       tx,
       adminId,
       'UPDATE',
       'ACADEMIC_SETTINGS',
       1,
-      { structure: before },
-      { structure },
+      {
+        structure: beforeStructure,
+        femaleStudentPercentage: beforeRow?.femaleStudentPercentage ?? 15,
+      },
+      {
+        structure: finalStructure,
+        femaleStudentPercentage: finalFemalePercentage,
+      },
     );
-    return ok({ structure });
+    return ok({ structure: finalStructure, femaleStudentPercentage: finalFemalePercentage });
   });
 }
 

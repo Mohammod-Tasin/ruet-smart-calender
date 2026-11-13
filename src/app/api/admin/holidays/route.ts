@@ -1,3 +1,4 @@
+import { ADMIN_HOLIDAY_CATEGORY, isModerator } from '@/core/auth/roles';
 import { createHolidaySchema, formatIssues } from '@/core/validation/holiday';
 import { internalError, jsonError } from '@/server/http/errors';
 import { guardMutation, requireAdmin } from '@/server/http/guard';
@@ -15,6 +16,10 @@ export async function POST(req: Request) {
 
   const parsed = createHolidaySchema.safeParse(guard.body);
   if (!parsed.success) return jsonError(400, 'BAD_REQUEST', formatIssues(parsed.error));
+
+  if (!isModerator(auth.admin.role) && parsed.data.category !== ADMIN_HOLIDAY_CATEGORY) {
+    return jsonError(403, 'FORBIDDEN', 'Only moderators can create holidays.');
+  }
 
   try {
     const result = await createHoliday(auth.admin.id, parsed.data);

@@ -1,0 +1,1 @@
+ALTER TABLE "series" ADD COLUMN "brothers_count" integer DEFAULT 0 NOT NULL;

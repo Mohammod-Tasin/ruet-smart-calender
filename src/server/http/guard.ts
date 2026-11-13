@@ -1,5 +1,6 @@
 import 'server-only';
 import { SESSION_COOKIE, readCookie } from '@/core/auth/cookie';
+import { isModerator } from '@/core/auth/roles';
 import { checkMutation } from '@/core/auth/origin';
 import { findSession, type AdminSession } from '@/server/auth/session';
 import { jsonError } from './errors';
@@ -52,4 +53,17 @@ export async function requireAdmin(req: Request): Promise<Guarded<{ admin: Admin
     return { ok: false, response: jsonError(401, 'UNAUTHENTICATED', 'Please sign in.') };
   }
   return { ok: true, admin };
+}
+
+/** Session + role guard for routes only a Moderator may call. */
+export async function requireModerator(req: Request): Promise<Guarded<{ admin: AdminSession }>> {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return auth;
+  if (!isModerator(auth.admin.role)) {
+    return {
+      ok: false,
+      response: jsonError(403, 'FORBIDDEN', 'Only moderators can perform this action.'),
+    };
+  }
+  return auth;
 }

@@ -5,10 +5,8 @@ import { todayInDhaka } from '@/core/calendar/grid';
 import { addDays } from '@/core/calendar/hijri';
 import { isRealDate } from '@/core/validation/holidays-query';
 import { useStatus, useStructure } from '@/lib/hooks';
-import { dayText, findSeries, PHASE_SHORT } from '@/lib/journey-ui';
-import { useMySeries } from '@/lib/my-series';
-import { HolidayReportCard } from './HolidayReport';
-import { MySeriesBar } from './MySeriesBar';
+import { dayText, PHASE_SHORT } from '@/lib/journey-ui';
+import { GenerateReportButton } from './HolidayReport';
 import { SeriesSheet } from './SeriesSheet';
 import { StatusMatrix } from './StatusMatrix';
 import { ThemeToggle } from './ThemeToggle';
@@ -16,7 +14,43 @@ import { TopNav } from './TopNav';
 
 const SUMMARY_ORDER = ['CLASS', 'MID_BREAK', 'VIVA', 'EXAM', 'SEMESTER_BREAK'] as const;
 
-/** Public Semester Status tab: summary, the matrix, my-series card at the bottom, and a series sheet on tap. */
+const SUMMARY_CHIP_STYLE: Record<
+  (typeof SUMMARY_ORDER)[number],
+  { bg: string; border: string; text: string; dot: string }
+> = {
+  CLASS: {
+    bg: 'bg-emerald-50 dark:bg-emerald-950/40',
+    border: 'border-emerald-200 dark:border-emerald-800/60',
+    text: 'text-emerald-900 dark:text-emerald-200',
+    dot: 'bg-emerald-500',
+  },
+  MID_BREAK: {
+    bg: 'bg-orange-50 dark:bg-orange-950/40',
+    border: 'border-orange-200 dark:border-orange-800/60',
+    text: 'text-orange-900 dark:text-orange-200',
+    dot: 'bg-orange-500',
+  },
+  VIVA: {
+    bg: 'bg-purple-50 dark:bg-purple-950/40',
+    border: 'border-purple-200 dark:border-purple-800/60',
+    text: 'text-purple-900 dark:text-purple-200',
+    dot: 'bg-purple-500',
+  },
+  EXAM: {
+    bg: 'bg-blue-50 dark:bg-blue-950/40',
+    border: 'border-blue-200 dark:border-blue-800/60',
+    text: 'text-blue-900 dark:text-blue-200',
+    dot: 'bg-blue-500',
+  },
+  SEMESTER_BREAK: {
+    bg: 'bg-rose-50 dark:bg-rose-950/40',
+    border: 'border-rose-200 dark:border-rose-800/60',
+    text: 'text-rose-900 dark:text-rose-200',
+    dot: 'bg-rose-500',
+  },
+};
+
+/** Public Semester Status tab: summary, the matrix, holiday report at the bottom, and a series sheet on tap. */
 export function StatusBoard() {
   const router = useRouter();
   const pathname = usePathname();
@@ -29,8 +63,6 @@ export function StatusBoard() {
   const [retry, setRetry] = useState(0);
   const { data, error, loading } = useStatus(date, { version: retry });
   const [open, setOpen] = useState<number | null>(null);
-  const mine = useMySeries();
-  const mineId = structure && mine ? findSeries(structure, mine.dept, mine.year)?.id : undefined;
 
   const setDate = (d: string) => {
     const next = new URLSearchParams(params.toString());
@@ -70,86 +102,104 @@ export function StatusBoard() {
           <section
             aria-label="Summary"
             aria-live="polite"
-            className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
+            className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/60"
           >
-            <p className="text-sm font-medium">
-              All departments {date === today ? 'today' : `on ${dayText(date)}`}
-              {loading ? ' …' : ''}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                All departments · {date === today ? 'Today' : dayText(date)}
+                {loading ? ' …' : ''}
+              </p>
+              {!loading && started > 0 && (
+                <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                  {started} active series
+                </span>
+              )}
+            </div>
+
             {!loading && data && started > 0 && (
-              <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-sm text-zinc-700 dark:text-zinc-300">
-                {SUMMARY_ORDER.filter((p) => data.summary[p]).map((p) => (
-                  <li key={p}>
-                    {PHASE_SHORT[p]} {data.summary[p]!}
-                  </li>
-                ))}
-              </ul>
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {SUMMARY_ORDER.filter((p) => data.summary[p]).map((p) => {
+                  const style = SUMMARY_CHIP_STYLE[p];
+                  return (
+                    <div
+                      key={p}
+                      className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${style.bg} ${style.border} ${style.text}`}
+                    >
+                      <span className={`h-2 w-2 rounded-full ${style.dot}`} />
+                      <span className="font-bold text-sm leading-none">{data.summary[p]!}</span>
+                      <span className="font-medium">{PHASE_SHORT[p]}</span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </section>
 
-          <HolidayReportCard from={date} />
-
-          <div className="flex flex-wrap items-end gap-2 px-1">
-            <div>
-              <label htmlFor="status-date-input" className="mb-1 block text-sm font-medium">
-                Show another date
-              </label>
-              <div className="flex items-center gap-1.5">
-                <input
-                  id="status-date-input"
-                  type="date"
-                  value={date}
-                  onChange={(e) => e.target.value && setDate(e.target.value)}
-                  className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                />
-                <button
-                  type="button"
-                  onClick={() => setDate(addDays(date, -7))}
-                  aria-label="Previous week"
-                  title="Previous week (-1 week)"
-                  className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
+          <div className="flex flex-wrap items-end justify-between gap-2 px-1">
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label htmlFor="status-date-input" className="mb-1 block text-sm font-medium">
+                  Show another date
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    id="status-date-input"
+                    type="date"
+                    value={date}
+                    onChange={(e) => e.target.value && setDate(e.target.value)}
+                    className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setDate(addDays(date, -7))}
+                    aria-label="Previous week"
+                    title="Previous week (-1 week)"
+                    className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDate(addDays(date, 7))}
-                  aria-label="Next week"
-                  title="Next week (+1 week)"
-                  className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDate(addDays(date, 7))}
+                    aria-label="Next week"
+                    title="Next week (+1 week)"
+                    className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
               </div>
+              <span className="pb-2 text-sm text-zinc-600 dark:text-zinc-400" aria-hidden>
+                {dayText(date)}
+              </span>
+              {date !== today && (
+                <button
+                  type="button"
+                  onClick={() => setDate(today)}
+                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  Today
+                </button>
+              )}
             </div>
-            <span className="pb-2 text-sm text-zinc-600 dark:text-zinc-400" aria-hidden>
-              {dayText(date)}
-            </span>
-            {date !== today && (
-              <button
-                type="button"
-                onClick={() => setDate(today)}
-                className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-              >
-                Today
-              </button>
-            )}
+
+            <GenerateReportButton date={date} />
           </div>
 
           {structure ? (
@@ -173,12 +223,6 @@ export function StatusBoard() {
       <p className="px-1 text-xs text-zinc-500 dark:text-zinc-400">
         Tap a box to see that batch&apos;s plan. Dates can change when the holiday list changes.
       </p>
-
-      <MySeriesBar
-        structure={structure}
-        entry={mineId ? bySeries.get(mineId) : undefined}
-        date={date}
-      />
 
       {open !== null && <SeriesSheet seriesId={open} date={date} onClose={() => setOpen(null)} />}
     </main>

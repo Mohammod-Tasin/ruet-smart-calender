@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { createRuleSchema } from '@/core/validation/rules';
 import { internalError, jsonError } from '@/server/http/errors';
-import { requireAdmin } from '@/server/http/guard';
-import { adminMutation } from '@/server/http/mutation';
+import { requireModerator } from '@/server/http/guard';
+import { moderatorMutation } from '@/server/http/mutation';
 import { okJson } from '@/server/http/result';
 import { createRule, listRules } from '@/server/services/rules';
 
@@ -13,7 +13,7 @@ const yearParam = z.coerce.number().int().min(2000).max(2100);
 
 // Rules, that year's computed dates, and the "dates needed" list.
 export async function GET(req: Request) {
-  const auth = await requireAdmin(req);
+  const auth = await requireModerator(req);
   if (!auth.ok) return auth.response;
   const q = new URL(req.url).searchParams.get('year');
   const year = yearParam.safeParse(q ?? new Date().getUTCFullYear());
@@ -26,5 +26,5 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  return adminMutation(req, createRuleSchema, createRule, 201);
+  return moderatorMutation(req, createRuleSchema, createRule, 201);
 }
