@@ -43,6 +43,7 @@ type Target =
 
 /** Series Board: tap any department, batch column, or individual cell to edit its status easily. */
 export function SeriesBoard() {
+  const toast = useToast();
   const params = useSearchParams();
   const { structure, failed } = useStructure();
   const today = useMemo(() => todayInDhaka(), []);
@@ -50,6 +51,7 @@ export function SeriesBoard() {
   const [version, setVersion] = useState(0);
   const { data, error, loading } = useStatus(date, { bust: true, version });
   const [target, setTarget] = useState<Target | null>(null);
+  const [verifyingYear, setVerifyingYear] = useState<number | null>(null);
   const highlight = useMemo(
     () =>
       new Set(
@@ -73,6 +75,18 @@ export function SeriesBoard() {
     clearHolidayCache();
     setVersion((v) => v + 1);
   };
+
+  async function verifyBatchColumn(year: number) {
+    setVerifyingYear(year);
+    const r = await api('/api/admin/verify-batch', {
+      method: 'POST',
+      body: { intakeYear: year },
+    });
+    setVerifyingYear(null);
+    if (!r.ok) return toast(r.message, 'error');
+    toast(`Batch '${String(year).slice(-2)} marked verified.`);
+    refresh();
+  }
 
   if (error || failed) {
     return (
@@ -186,6 +200,9 @@ export function SeriesBoard() {
           onColumn={(year) => setTarget({ kind: 'intake', year })}
           onDepartment={(deptId) => setTarget({ kind: 'department', deptId })}
           highlight={highlight}
+          verifications={data?.verifications}
+          onVerify={verifyBatchColumn}
+          verifyingYear={verifyingYear}
         />
       ) : (
         <p className="px-1 text-sm">Loading…</p>

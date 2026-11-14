@@ -2,8 +2,10 @@
 import type { ApiStructure } from '@/lib/api';
 import {
   cellText,
+  formatVerifiedParts,
   headline,
   HOLIDAY_STRIP,
+  isVerifiedRecently,
   NONE_CELL,
   PHASE_STYLE,
   UNOFFICIAL_STRIP,
@@ -25,6 +27,9 @@ export function StatusMatrix({
   onColumn,
   onDepartment,
   highlight,
+  verifications,
+  onVerify,
+  verifyingYear,
 }: {
   structure: ApiStructure;
   bySeries: Map<number, StatusEntry>;
@@ -34,6 +39,11 @@ export function StatusMatrix({
   onDepartment?: (deptId: number) => void;
   /** Series ids to draw attention to (the admin to-do "Set status" link). */
   highlight?: Set<number>;
+  /** Last verified ISO timestamps keyed by intakeYear. */
+  verifications?: Record<number, string>;
+  /** Admin only: marks an intakeYear batch as verified right now. */
+  onVerify?: (year: number) => void;
+  verifyingYear?: number | null;
 }) {
   const years = [...new Set(structure.series.map((s) => s.intakeYear))].sort((a, b) => a - b);
   const groups = structure.faculties
@@ -122,6 +132,60 @@ export function StatusMatrix({
             ))}
           </tbody>
         ))}
+        {(verifications !== undefined || onVerify !== undefined) && (
+          <tfoot>
+            <tr className="border-t border-zinc-200 dark:border-zinc-800">
+              <th
+                scope="row"
+                className={`${sticky} border-t border-zinc-200 px-2 py-2 text-[11px] font-medium text-zinc-500 dark:border-zinc-800 dark:text-zinc-400`}
+              >
+                Last verified
+              </th>
+              {years.map((y) => {
+                const iso = verifications?.[y];
+                const recent = isVerifiedRecently(iso);
+                const parts = iso ? formatVerifiedParts(iso) : null;
+                const color = recent
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-red-600 dark:text-red-400';
+                return (
+                  <td
+                    key={y}
+                    className="border-t border-zinc-200 px-0.5 py-1.5 text-center align-top dark:border-zinc-800"
+                  >
+                    {loading ? (
+                      <div className="mx-auto h-6 w-12 animate-pulse rounded bg-zinc-100 dark:bg-zinc-900" />
+                    ) : (
+                      <div className="flex flex-col items-center gap-1">
+                        {parts ? (
+                          <div className={`text-[10px] leading-tight font-medium ${color}`}>
+                            <div>{parts.date}</div>
+                            <div>{parts.time}</div>
+                          </div>
+                        ) : (
+                          <span className={`text-[10px] leading-tight font-medium ${color}`}>
+                            Not verified
+                          </span>
+                        )}
+                        {onVerify && (
+                          <button
+                            type="button"
+                            disabled={verifyingYear === y}
+                            onClick={() => onVerify(y)}
+                            aria-label={`Mark batch ${y} as verified`}
+                            className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
+                          >
+                            {verifyingYear === y ? 'Saving…' : 'Verified'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );

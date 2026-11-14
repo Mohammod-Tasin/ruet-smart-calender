@@ -89,6 +89,10 @@ export const impactSchema = z
 
 export const statusQuerySchema = z.object({ date: date.optional() });
 
+export const verifyBatchSchema = z.object({
+  intakeYear: z.number().int().min(2000).max(2100),
+});
+
 const weeks = (max: number) => z.number().int().min(0).max(max);
 
 /** Set (or just confirm) the mid-term break / schedule of one semester for many series. */

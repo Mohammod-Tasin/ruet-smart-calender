@@ -87,7 +87,8 @@ export const auditEntity = (
     | 'SERIES_POSITION'
     | 'SERIES_SCHEDULE'
     | 'ACADEMIC_SETTINGS'
-    | 'ADMIN',
+    | 'ADMIN'
+    | 'BATCH_VERIFICATION',
   entityId: number,
   before: unknown,
   after: unknown,

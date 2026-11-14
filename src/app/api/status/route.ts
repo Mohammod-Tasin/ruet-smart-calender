@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   if (!q.success) return jsonError(400, 'BAD_REQUEST', 'date must be a real date, YYYY-MM-DD.');
   try {
     return Response.json(await statusOn(q.data.date), {
-      headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
+      headers: { 'Cache-Control': 'no-store' },
     });
   } catch (e) {
     return internalError(e);

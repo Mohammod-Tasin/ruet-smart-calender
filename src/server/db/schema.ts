@@ -260,6 +260,13 @@ export const seriesSemesterSchedule = pgTable(
   ],
 );
 
+/** One row per active intake year: when an admin last verified that batch's semester status. */
+export const batchVerifications = pgTable('batch_verifications', {
+  intakeYear: integer('intake_year').primaryKey(),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull().defaultNow(),
+  verifiedBy: integer('verified_by').references(() => admins.id),
+});
+
 /** One row (id = 1): the semester structure shared by every series. */
 export const academicSettings = pgTable(
   'academic_settings',
